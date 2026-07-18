@@ -12,7 +12,7 @@ Requirements: macOS 14+ and Xcode 15+.
 swift run LoopBar
 ```
 
-Click the menu-bar icon to open the panel; click a row to open that chat in Cursor. Use Settings to change the refresh interval.
+Click the island at the top of your screen (centered near the notch) to expand it. Click a row to open that chat in Cursor. Use the gear icon for settings.
 
 To open in Xcode, create an App project and add the contents of `Sources/`, or open this Swift Package and select the `LoopBar` executable scheme.
 
@@ -26,7 +26,8 @@ Cursor does not store a durable local agent run state, so composers updated with
 
 - `AgentStore`: observable state, polling lifecycle, completion detection, error state.
 - `LocalCursorAgentAPI`: reads Cursor's live `composerHeaders` in read-only mode.
-- `MenuPanelView`: a compact, dark SwiftUI panel that expands from the menu bar like a notch.
+- `IslandPanelController`: floating panel pinned under the MacBook notch.
+- `MenuPanelView`: Dynamic Island-style pill that expands downward.
 - SwiftUI views: compact summary, expandable agent list, settings.
 
 ## Privacy
