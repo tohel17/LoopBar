@@ -1,28 +1,42 @@
 import Foundation
 
-/// Reads Cursor's local conversation index without modifying Cursor's data.
-/// Cursor does not expose a durable local run state, so a conversation updated within
-/// the last two minutes is treated as active and all other conversations are unknown.
+/// Reads Cursor's live composer headers without modifying Cursor's data.
+/// Cursor does not expose a durable local run state, so a composer updated within
+/// the last two minutes is treated as active and all other composers are unknown.
 struct LocalCursorAgentAPI {
     private let databaseURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/conversation-search.db")
+        .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
 
     func fetchAgents() async throws -> [CursorAgent] {
         try await Task.detached(priority: .userInitiated) {
-            try readConversations(from: databaseURL)
+            try readComposers(from: databaseURL)
         }.value
     }
 
-    private func readConversations(from databaseURL: URL) throws -> [CursorAgent] {
+    private func readComposers(from databaseURL: URL) throws -> [CursorAgent] {
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
-            throw APIError.localCursorUnavailable("Cursor's local conversation index was not found.")
+            throw APIError.localCursorUnavailable("Cursor's local state database was not found.")
         }
 
+        // Prefer lastUpdatedAt when present; otherwise fall back to recency/createdAt columns.
         let query = """
-            SELECT id, title, updated_at
-            FROM conversations
-            WHERE source = 'local' AND is_archived = 0
-            ORDER BY updated_at DESC
+            SELECT
+                composerId AS id,
+                COALESCE(
+                    NULLIF(json_extract(value, '$.name'), ''),
+                    NULLIF(json_extract(value, '$.subtitle'), ''),
+                    'Untitled local agent'
+                ) AS title,
+                COALESCE(
+                    json_extract(value, '$.lastUpdatedAt'),
+                    lastUpdatedAt,
+                    recency,
+                    createdAt
+                ) AS updated_at,
+                json_extract(value, '$.unifiedMode') AS mode
+            FROM composerHeaders
+            WHERE isArchived = 0 AND isSubagent = 0
+            ORDER BY COALESCE(lastUpdatedAt, recency, createdAt) DESC
             LIMIT 3;
             """
         let process = Process()
@@ -44,31 +58,44 @@ struct LocalCursorAgentAPI {
         let data = output.fileHandleForReading.readDataToEndOfFile()
         let response = String(data: data, encoding: .utf8) ?? "<non-UTF-8 response: \(data.count) bytes>"
         print("[Cursor Local] response:\n\(response)")
-        let conversations = try JSONDecoder().decode([LocalConversation].self, from: data)
-        let agents = conversations.map { conversation in
-            let updatedAt = Date(timeIntervalSince1970: conversation.updatedAt / 1_000)
+        let composers = try JSONDecoder().decode([LocalComposer].self, from: data)
+        let agents = composers.map { composer in
+            let updatedAt = Date(timeIntervalSince1970: composer.updatedAt / 1_000)
             let isActive = now.timeIntervalSince(updatedAt) < 120
+            let modeLabel = composer.mode.map { " · \($0)" } ?? ""
             return CursorAgent(
-                id: conversation.id,
-                title: conversation.title.isEmpty ? "Untitled local agent" : conversation.title,
+                id: composer.id,
+                title: composer.title,
                 status: isActive ? .running : .unknown,
                 progress: nil,
-                latestStatus: isActive ? "Active in Cursor" : "Last active \(updatedAt.formatted(.relative(presentation: .named)))",
+                latestStatus: isActive
+                    ? "Active in Cursor\(modeLabel)"
+                    : "Last active \(updatedAt.formatted(.relative(presentation: .named)))\(modeLabel)",
                 updatedAt: updatedAt,
-                url: nil
+                url: Self.cursorAgentURL(composerId: composer.id)
             )
         }
         print("[Cursor Local] decoded \(agents.count) agents")
         return agents
     }
 
-    private struct LocalConversation: Decodable {
+    /// Cursor's internal agent-link scheme: `cursor.agent://local/<composerId>`.
+    private static func cursorAgentURL(composerId: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "cursor.agent"
+        components.host = "local"
+        components.path = "/\(composerId)"
+        return components.url
+    }
+
+    private struct LocalComposer: Decodable {
         let id: String
         let title: String
         let updatedAt: Double
+        let mode: String?
 
         enum CodingKeys: String, CodingKey {
-            case id, title
+            case id, title, mode
             case updatedAt = "updated_at"
         }
     }

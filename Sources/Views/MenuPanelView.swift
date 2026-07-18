@@ -77,7 +77,17 @@ private struct AgentRow: View {
                 Text(agent.latestStatus).lineLimit(1).font(.caption).foregroundStyle(.secondary)
                 if let progress = agent.progress { ProgressView(value: progress).tint(color).accessibilityLabel("Progress \(Int(progress * 100)) percent") }
             }
-        }.padding(10).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 11, style: .continuous)).contentShape(Rectangle()).onTapGesture { if let url = agent.url { NSWorkspace.shared.open(url) } }
+        }.padding(10).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 11, style: .continuous)).contentShape(Rectangle()).onTapGesture { openInCursor(agent) }
     }
     private var color: Color { switch agent.status { case .running: .purple; case .queued: .yellow; case .completed: .green; case .failed: .red; case .cancelled, .unknown: .gray } }
+
+    private func openInCursor(_ agent: CursorAgent) {
+        guard let url = agent.url else { return }
+        let cursorApp = URL(fileURLWithPath: "/Applications/Cursor.app")
+        if FileManager.default.fileExists(atPath: cursorApp.path) {
+            NSWorkspace.shared.open([url], withApplicationAt: cursorApp, configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
 }
