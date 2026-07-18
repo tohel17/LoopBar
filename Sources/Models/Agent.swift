@@ -19,12 +19,38 @@ enum AgentStatus: String, Codable, CaseIterable, Sendable {
     var symbol: String { switch self { case .running: "arrow.triangle.2.circlepath"; case .queued: "clock"; case .completed: "checkmark.circle.fill"; case .failed: "xmark.octagon.fill"; case .cancelled: "slash.circle"; case .unknown: "questionmark.circle" } }
 }
 
+enum AgentSource: String, Codable, Sendable {
+    case cursor = "Cursor"
+    case codex = "Codex"
+}
+
 struct CursorAgent: Identifiable, Equatable, Sendable {
     let id: String
+    let source: AgentSource
     let title: String
     let status: AgentStatus
     let progress: Double?
     let latestStatus: String
     let updatedAt: Date?
     let url: URL?
+
+    init(
+        id: String,
+        source: AgentSource = .cursor,
+        title: String,
+        status: AgentStatus,
+        progress: Double?,
+        latestStatus: String,
+        updatedAt: Date?,
+        url: URL?
+    ) {
+        self.id = id
+        self.source = source
+        self.title = title
+        self.status = status
+        self.progress = progress
+        self.latestStatus = latestStatus
+        self.updatedAt = updatedAt
+        self.url = url
+    }
 }

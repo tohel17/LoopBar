@@ -57,10 +57,8 @@ struct CursorAPI {
 
         let now = Date()
         let data = output.fileHandleForReading.readDataToEndOfFile()
-        let response = String(data: data, encoding: .utf8) ?? "<non-UTF-8 response: \(data.count) bytes>"
-        print("[Cursor Local] response:\n\(response)")
         let composers = try JSONDecoder().decode([LocalComposer].self, from: data)
-        let agents = composers.map { composer in
+        return composers.map { composer in
             let updatedAt = Date(timeIntervalSince1970: composer.updatedAt / 1_000)
             let isActive = now.timeIntervalSince(updatedAt) < 120
             let modeLabel = composer.mode.map { " · \($0)" } ?? ""
@@ -76,8 +74,6 @@ struct CursorAPI {
                 url: Self.cursorAgentURL(composerId: composer.id)
             )
         }
-        print("[Cursor Local] decoded \(agents.count) agents")
-        return agents
     }
 
     /// Cursor's internal agent-link scheme: `cursor.agent://local/<composerId>`.

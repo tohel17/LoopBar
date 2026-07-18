@@ -7,6 +7,6 @@ final class Settings: ObservableObject {
     private enum Keys { static let refresh = "refreshSeconds" }
 
     init() {
-        refreshSeconds = min(max(defaults.object(forKey: Keys.refresh) as? Double ?? 7, 5), 60)
+        refreshSeconds = min(max(defaults.object(forKey: Keys.refresh) as? Double ?? 1, 1), 60)
     }
 }

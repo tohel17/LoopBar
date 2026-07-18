@@ -45,9 +45,9 @@ struct SettingsView: View {
                     .frame(width: 28, height: 28)
                     .background(.purple.opacity(0.16), in: Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Local Cursor")
+                    Text("Local agents")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Monitors recent, unarchived composers")
+                    Text("Monitors Cursor composers and Codex tasks")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.52))
                 }
@@ -62,10 +62,10 @@ struct SettingsView: View {
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(.purple.opacity(0.95))
                 }
-                Slider(value: $store.settings.refreshSeconds, in: 5...60, step: 1)
+                Slider(value: $store.settings.refreshSeconds, in: 1...60, step: 1)
                     .tint(.purple)
                 HStack {
-                    Text("5 seconds")
+                    Text("1 second")
                     Spacer()
                     Text("1 minute")
                 }
@@ -86,16 +86,16 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var settingsContent: some View {
-        Section("Local Cursor") {
-            Text("Monitoring your three most recently updated, unarchived Cursor composers.")
+        Section("Local agents") {
+            Text("Monitoring your three most recently updated Cursor composers and Codex tasks.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         Section("Refresh") {
-            Slider(value: $store.settings.refreshSeconds, in: 5...60, step: 1) {
+            Slider(value: $store.settings.refreshSeconds, in: 1...60, step: 1) {
                 Text("Refresh interval")
             } minimumValueLabel: {
-                Text("5s")
+                Text("1s")
             } maximumValueLabel: {
                 Text("60s")
             }

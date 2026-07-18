@@ -24,7 +24,7 @@ struct ExpandedIslandView: View {
                 ContentUnavailableView {
                     Label(emptyMessage, systemImage: viewModel.state == .loading ? "arrow.triangle.2.circlepath" : "bubble.left.and.bubble.right")
                 } description: {
-                    Text(viewModel.state == .loading ? "Looking for local Cursor composers" : "Your recently updated Cursor composers will appear here.")
+                    Text(viewModel.state == .loading ? "Checking Cursor and Codex" : "Recent Cursor and Codex activity will appear here.")
                 }
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.62))
@@ -57,7 +57,7 @@ struct ExpandedIslandView: View {
         if viewModel.state == .loading {
             return "Connecting…"
         }
-        return "No recent composers"
+        return "No recent agents"
     }
 
     // MARK: - Settings

@@ -21,6 +21,12 @@ struct AgentRowView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                     Spacer(minLength: 0)
+                    Text(agent.source.rawValue)
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.white.opacity(0.10), in: Capsule())
                     Text(agent.status.label)
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(color.opacity(0.9))
@@ -47,12 +53,12 @@ struct AgentRowView: View {
                 .strokeBorder(.white.opacity(0.09), lineWidth: 0.8)
         }
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onTapGesture { openInCursor(agent) }
+        .onTapGesture { openAgent(agent) }
     }
 
     private var color: Color {
         switch agent.status {
-        case .running: .purple
+        case .running: agent.source == .codex ? .blue : .purple
         case .queued: .yellow
         case .completed: .green
         case .failed: .red
@@ -60,11 +66,29 @@ struct AgentRowView: View {
         }
     }
 
-    private func openInCursor(_ agent: CursorAgent) {
+    private func openAgent(_ agent: CursorAgent) {
         guard let url = agent.url else { return }
+        switch agent.source {
+        case .cursor:
+            openInCursor(url)
+        case .codex:
+            openInCodex(url)
+        }
+    }
+
+    private func openInCursor(_ url: URL) {
         let cursorApp = URL(fileURLWithPath: "/Applications/Cursor.app")
         if FileManager.default.fileExists(atPath: cursorApp.path) {
             NSWorkspace.shared.open([url], withApplicationAt: cursorApp, configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func openInCodex(_ url: URL) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") {
+            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: configuration)
         } else {
             NSWorkspace.shared.open(url)
         }
