@@ -1,15 +1,26 @@
 import Foundation
 
+/// Observable store for Cursor agent data and polling lifecycle.
+///
+/// Deliberately free of island chrome / expand state — that lives in `IslandViewModel`.
 @MainActor
 final class AgentStore: ObservableObject {
     @Published private(set) var agents: [CursorAgent] = []
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var errorMessage: String?
     @Published var settings = Settings()
+
+    private let api = CursorAPI()
     private var pollingTask: Task<Void, Never>?
 
-    init() { restartPolling() }
-    deinit { pollingTask?.cancel() }
+    init() {
+        restartPolling()
+    }
+
+    deinit {
+        pollingTask?.cancel()
+    }
+
     func restartPolling() {
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
@@ -20,13 +31,26 @@ final class AgentStore: ObservableObject {
             }
         }
     }
+
     func refresh() async {
         do {
-            let incoming = try await LocalCursorAgentAPI().fetchAgents()
-                .sorted { $0.status.isTerminal == $1.status.isTerminal ? $0.title < $1.title : !$0.status.isTerminal }
+            let incoming = try await api.fetchAgents()
+                .sorted {
+                    $0.status.isTerminal == $1.status.isTerminal
+                        ? $0.title < $1.title
+                        : !$0.status.isTerminal
+                }
             print("[LoopBar] displaying \(incoming.count) agents")
-            agents = incoming; lastUpdated = .now; errorMessage = nil
-        } catch { errorMessage = error.localizedDescription }
+            agents = incoming
+            lastUpdated = .now
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
-    func updateSettings() { restartPolling(); Task { await refresh() } }
+
+    func updateSettings() {
+        restartPolling()
+        Task { await refresh() }
+    }
 }

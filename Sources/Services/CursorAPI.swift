@@ -1,15 +1,16 @@
 import Foundation
 
 /// Reads Cursor's live composer headers without modifying Cursor's data.
+///
 /// Cursor does not expose a durable local run state, so a composer updated within
 /// the last two minutes is treated as active and all other composers are unknown.
-struct LocalCursorAgentAPI {
+struct CursorAPI {
     private let databaseURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
 
     func fetchAgents() async throws -> [CursorAgent] {
         try await Task.detached(priority: .userInitiated) {
-            try readComposers(from: databaseURL)
+            try self.readComposers(from: self.databaseURL)
         }.value
     }
 

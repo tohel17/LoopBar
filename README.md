@@ -24,11 +24,17 @@ Cursor does not store a durable local agent run state, so composers updated with
 
 ## Architecture
 
-- `AgentStore`: observable state, polling lifecycle, completion detection, error state.
-- `LocalCursorAgentAPI`: reads Cursor's live `composerHeaders` in read-only mode.
-- `IslandPanelController`: floating panel pinned under the MacBook notch.
-- `MenuPanelView`: Dynamic Island-style pill that expands downward.
-- SwiftUI views: compact summary, expandable agent list, settings.
+MVVM layout under `Sources/`:
+
+- `App/` — `@main` entry and `AppDelegate`
+- `Controllers/IslandPanelController` — NSPanel host, resize, screen observation only
+- `ViewModels/IslandViewModel` — island chrome state (`IslandState`), content (`IslandContent`), hover/animation flags
+- `Models/` — `CursorAgent`, `IslandState`, `IslandContent`
+- `Services/AgentStore` — agent polling and error state only
+- `Services/CursorAPI` — read-only live `composerHeaders` access
+- `Geometry/IslandGeometry` — notch/screen frame math
+- `Utilities/IslandMetrics` — sizing constants
+- `Views/` — `IslandRootView`, `CompactIslandView`, `ExpandedIslandView`, `AgentRowView`, `MenuPanelView`, `SettingsView`
 
 ## Privacy
 
