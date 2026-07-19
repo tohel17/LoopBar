@@ -22,7 +22,7 @@ struct MenuPanelView: View {
         .frame(width: expanded ? IslandMetrics.expandedWidth : IslandMetrics.compactWidth)
         .background {
             IslandShape(expanded: expanded)
-                .fill(Color.black)
+                .fill(Color(red: 0, green: 0, blue: 0))
         }
         .clipShape(IslandShape(expanded: expanded))
         .preferredColorScheme(.dark)

@@ -52,7 +52,7 @@ struct AgentRowView: View {
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 11)
-        .background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .strokeBorder(.white.opacity(0.09), lineWidth: 0.8)

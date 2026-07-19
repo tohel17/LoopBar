@@ -38,17 +38,19 @@ struct CompactIslandView: View {
                 // to the tiny count label made most of the glow fall outside
                 // the label's bounds and become effectively invisible.
                 ZStack {
+                    Color.black
+
                     if runningCount > 0 {
                         RadialGradient(
                             colors: [
-                                runningColor.opacity(0.72),
-                                runningColor.opacity(0.32),
-                                runningColor.opacity(0.08),
+                                runningColor.opacity(0.90 * gradientStrength),
+                                runningColor.opacity(0.50 * gradientStrength),
+                                runningColor.opacity(0.15 * gradientStrength),
                                 .clear
                             ],
                             center: .topLeading,
                             startRadius: 0,
-                            endRadius: 190
+                            endRadius: 220
                         )
                         .blur(radius: 12)
                         .offset(x: -18, y: -30)
@@ -57,14 +59,14 @@ struct CompactIslandView: View {
                     if attentionCount > 0 {
                         RadialGradient(
                             colors: [
-                                attentionColor.opacity(0.72),
-                                attentionColor.opacity(0.32),
-                                attentionColor.opacity(0.08),
+                                attentionColor.opacity(0.90 * gradientStrength),
+                                attentionColor.opacity(0.50 * gradientStrength),
+                                attentionColor.opacity(0.15 * gradientStrength),
                                 .clear
                             ],
                             center: .topTrailing,
                             startRadius: 0,
-                            endRadius: 190
+                            endRadius: 220
                         )
                         .blur(radius: 12)
                         .offset(x: 18, y: -30)
@@ -102,6 +104,12 @@ struct CompactIslandView: View {
         if runningSources.contains(.codex) { return .blue }
         if runningSources.contains(.cursor) { return .purple }
         return .blue
+    }
+
+    /// Kept as a named value so compact and expanded gradient tuning remains
+    /// easy without changing the solid black base layer.
+    private var gradientStrength: Double {
+        1
     }
 }
 
