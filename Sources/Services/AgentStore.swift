@@ -66,6 +66,11 @@ final class AgentStore: ObservableObject {
     }
 
     private func sortAgents(_ lhs: CursorAgent, _ rhs: CursorAgent) -> Bool {
+        let leftPriority = statusPriority(lhs.status)
+        let rightPriority = statusPriority(rhs.status)
+        if leftPriority != rightPriority {
+            return leftPriority < rightPriority
+        }
         if lhs.status.isTerminal != rhs.status.isTerminal {
             return !lhs.status.isTerminal
         }
@@ -81,6 +86,21 @@ final class AgentStore: ObservableObject {
                 return lhs.source.rawValue < rhs.source.rawValue
             }
             return lhs.title < rhs.title
+        }
+    }
+
+    private func statusPriority(_ status: AgentStatus) -> Int {
+        switch status {
+        case .waitingForApproval, .waitingForInput, .blocked, .failed:
+            return 0
+        case .running:
+            return 1
+        case .queued:
+            return 2
+        case .unknown:
+            return 3
+        case .completed, .cancelled:
+            return 4
         }
     }
 }

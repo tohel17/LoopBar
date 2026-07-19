@@ -21,12 +21,7 @@ struct CompactIslandView: View {
                 Spacer(minLength: 82)
 
                 StatusBadge(status: islandStatus)
-                    .frame(width: 104, alignment: .trailing)
-
-                Image(systemName: expanded ? "chevron.compact.up" : "chevron.compact.down")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.42))
-                    .frame(width: 14, alignment: .trailing)
+                    .frame(width: 118, alignment: .trailing)
             }
             .padding(.horizontal, expanded ? 18 : 14)
             .padding(.vertical, expanded ? 14 : 11)
@@ -35,11 +30,11 @@ struct CompactIslandView: View {
     }
 
     private var islandStatus: IslandStatus {
+        if store.agents.contains(where: { $0.status.needsAttention }) {
+            return .attention
+        }
         if runningCount > 0 {
             return .running
-        }
-        if store.agents.contains(where: { $0.status == .failed }) {
-            return .attention
         }
         return store.agents.isEmpty ? .waiting : .idle
     }

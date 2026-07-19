@@ -34,7 +34,10 @@ struct CursorAPI {
                     recency,
                     createdAt
                 ) AS updated_at,
-                json_extract(value, '$.unifiedMode') AS mode
+                json_extract(value, '$.unifiedMode') AS mode,
+                COALESCE(json_extract(value, '$.hasBlockingPendingActions'), 0) AS has_blocking_pending_actions,
+                COALESCE(json_extract(value, '$.hasPendingPlan'), 0) AS has_pending_plan,
+                COALESCE(json_extract(value, '$.hasUnreadMessages'), 0) AS has_unread_messages
             FROM composerHeaders
             WHERE isArchived = 0 AND isSubagent = 0
             ORDER BY COALESCE(lastUpdatedAt, recency, createdAt) DESC
@@ -62,17 +65,44 @@ struct CursorAPI {
             let updatedAt = Date(timeIntervalSince1970: composer.updatedAt / 1_000)
             let isActive = now.timeIntervalSince(updatedAt) < 120
             let modeLabel = composer.mode.map { " · \($0)" } ?? ""
+            let status = Self.status(for: composer, isActive: isActive)
             return CursorAgent(
                 id: composer.id,
                 title: composer.title,
-                status: isActive ? .running : .unknown,
+                status: status,
                 progress: nil,
-                latestStatus: isActive
-                    ? "Active in Cursor\(modeLabel)"
-                    : "Last active \(updatedAt.formatted(.relative(presentation: .named)))\(modeLabel)",
+                latestStatus: Self.statusText(for: status, updatedAt: updatedAt, modeLabel: modeLabel),
                 updatedAt: updatedAt,
                 url: Self.cursorAgentURL(composerId: composer.id)
             )
+        }
+    }
+
+    private static func status(for composer: LocalComposer, isActive: Bool) -> AgentStatus {
+        if composer.hasBlockingPendingActions {
+            return .blocked
+        }
+        if composer.hasPendingPlan {
+            return .waitingForApproval
+        }
+        if composer.hasUnreadMessages {
+            return .waitingForInput
+        }
+        return isActive ? .running : .unknown
+    }
+
+    private static func statusText(for status: AgentStatus, updatedAt: Date, modeLabel: String) -> String {
+        switch status {
+        case .blocked:
+            return "Blocked in Cursor\(modeLabel)"
+        case .waitingForApproval:
+            return "Plan or action needs approval\(modeLabel)"
+        case .waitingForInput:
+            return "Waiting for your response\(modeLabel)"
+        case .running:
+            return "Active in Cursor\(modeLabel)"
+        default:
+            return "Last active \(updatedAt.formatted(.relative(presentation: .named)))\(modeLabel)"
         }
     }
 
@@ -90,10 +120,40 @@ struct CursorAPI {
         let title: String
         let updatedAt: Double
         let mode: String?
+        let hasBlockingPendingActions: Bool
+        let hasPendingPlan: Bool
+        let hasUnreadMessages: Bool
 
         enum CodingKeys: String, CodingKey {
             case id, title, mode
             case updatedAt = "updated_at"
+            case hasBlockingPendingActions = "has_blocking_pending_actions"
+            case hasPendingPlan = "has_pending_plan"
+            case hasUnreadMessages = "has_unread_messages"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            title = try container.decode(String.self, forKey: .title)
+            updatedAt = try container.decode(Double.self, forKey: .updatedAt)
+            mode = try container.decodeIfPresent(String.self, forKey: .mode)
+            hasBlockingPendingActions = try Self.decodeSQLiteBool(container, .hasBlockingPendingActions)
+            hasPendingPlan = try Self.decodeSQLiteBool(container, .hasPendingPlan)
+            hasUnreadMessages = try Self.decodeSQLiteBool(container, .hasUnreadMessages)
+        }
+
+        private static func decodeSQLiteBool(
+            _ container: KeyedDecodingContainer<CodingKeys>,
+            _ key: CodingKeys
+        ) throws -> Bool {
+            if let bool = try? container.decode(Bool.self, forKey: key) {
+                return bool
+            }
+            if let int = try? container.decode(Int.self, forKey: key) {
+                return int != 0
+            }
+            return false
         }
     }
 

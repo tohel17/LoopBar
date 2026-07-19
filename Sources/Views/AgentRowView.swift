@@ -60,6 +60,9 @@ struct AgentRowView: View {
         switch agent.status {
         case .running: agent.source == .codex ? .blue : .purple
         case .queued: .yellow
+        case .waitingForApproval: .orange
+        case .waitingForInput: .cyan
+        case .blocked: .red
         case .completed: .green
         case .failed: .red
         case .cancelled, .unknown: .gray

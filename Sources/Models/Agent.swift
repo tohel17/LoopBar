@@ -1,12 +1,15 @@
 import Foundation
 
 enum AgentStatus: String, Codable, CaseIterable, Sendable {
-    case running, queued, completed, failed, cancelled, unknown
+    case running, queued, waitingForApproval, waitingForInput, blocked, completed, failed, cancelled, unknown
 
     init(apiValue: String?) {
         switch apiValue?.uppercased().replacingOccurrences(of: "-", with: "_") {
         case "RUNNING", "IN_PROGRESS", "WORKING": self = .running
         case "QUEUED", "PENDING", "CREATING": self = .queued
+        case "WAITING_FOR_APPROVAL", "NEEDS_APPROVAL", "APPROVAL_REQUIRED": self = .waitingForApproval
+        case "WAITING_FOR_INPUT", "NEEDS_INPUT", "USER_INPUT_REQUIRED": self = .waitingForInput
+        case "BLOCKED": self = .blocked
         case "COMPLETED", "COMPLETE", "SUCCEEDED", "SUCCESS": self = .completed
         case "FAILED", "ERROR": self = .failed
         case "CANCELLED", "CANCELED": self = .cancelled
@@ -15,8 +18,33 @@ enum AgentStatus: String, Codable, CaseIterable, Sendable {
     }
 
     var isTerminal: Bool { [.completed, .failed, .cancelled].contains(self) }
-    var label: String { rawValue.capitalized }
-    var symbol: String { switch self { case .running: "arrow.triangle.2.circlepath"; case .queued: "clock"; case .completed: "checkmark.circle.fill"; case .failed: "xmark.octagon.fill"; case .cancelled: "slash.circle"; case .unknown: "questionmark.circle" } }
+    var needsAttention: Bool { [.waitingForApproval, .waitingForInput, .blocked, .failed].contains(self) }
+    var label: String {
+        switch self {
+        case .running: "Running"
+        case .queued: "Queued"
+        case .waitingForApproval: "Needs approval"
+        case .waitingForInput: "Waiting"
+        case .blocked: "Blocked"
+        case .completed: "Completed"
+        case .failed: "Failed"
+        case .cancelled: "Cancelled"
+        case .unknown: "Unknown"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .running: "arrow.triangle.2.circlepath"
+        case .queued: "clock"
+        case .waitingForApproval: "hand.raised.fill"
+        case .waitingForInput: "person.crop.circle.badge.questionmark"
+        case .blocked: "exclamationmark.octagon.fill"
+        case .completed: "checkmark.circle.fill"
+        case .failed: "xmark.octagon.fill"
+        case .cancelled: "slash.circle"
+        case .unknown: "questionmark.circle"
+        }
+    }
 }
 
 enum AgentSource: String, Codable, Sendable {
