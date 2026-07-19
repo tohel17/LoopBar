@@ -57,7 +57,7 @@ final class NotificationService {
 
     private func deliverDebugNotification(title: String, body: String) {
         let script = """
-        display notification "\(Self.appleScriptEscaped(body))" with title "\(Self.appleScriptEscaped(title))"
+        display notification "\(Self.appleScriptEscaped(body))" with title "\(Self.appleScriptEscaped(title))" sound name "Glass"
         """
 
         Task.detached {
