@@ -16,6 +16,8 @@ final class AgentStore: ObservableObject {
     private var pollingTask: Task<Void, Never>?
     private var hasLoadedInitialSnapshot = false
     private var lastStatuses: [String: AgentStatus] = [:]
+    private var lastPublishedAgents: [String: CursorAgent] = [:]
+    private var pendingCodexStatuses: [String: (status: AgentStatus, count: Int)] = [:]
 
     init() {
         notificationService.requestAuthorization()
@@ -63,10 +65,11 @@ final class AgentStore: ObservableObject {
         lastUpdated = .now
 
         let sortedIncoming = incoming.sorted(by: sortAgents)
-        notifyStatusTransitions(for: sortedIncoming)
+        let stabilizedIncoming = stabilizeTransientCodexStatuses(sortedIncoming)
+        notifyStatusTransitions(for: stabilizedIncoming)
 
-        if !sortedIncoming.isEmpty {
-            agents = sortedIncoming
+        if !stabilizedIncoming.isEmpty {
+            agents = stabilizedIncoming
             errorMessage = errors.isEmpty ? nil : errors.joined(separator: " · ")
         } else {
             agents = []
@@ -122,6 +125,7 @@ final class AgentStore: ObservableObject {
         let incomingStatuses = Dictionary(uniqueKeysWithValues: incoming.map { ($0.id, $0.status) })
         defer {
             lastStatuses = incomingStatuses
+            lastPublishedAgents = Dictionary(uniqueKeysWithValues: incoming.map { ($0.id, $0) })
             hasLoadedInitialSnapshot = true
         }
 
@@ -129,7 +133,38 @@ final class AgentStore: ObservableObject {
 
         for agent in incoming {
             guard let oldStatus = lastStatuses[agent.id] else { continue }
-            notificationService.notifyTransition(for: agent, from: oldStatus, to: agent.status)
+            notificationService.notifyTransition(
+                for: agent,
+                from: oldStatus,
+                to: agent.status,
+                settings: settings
+            )
+        }
+    }
+
+    /// Codex can briefly persist an intermediate waiting marker while a tool
+    /// call is still active. Require two consecutive polls before replacing a
+    /// published running state with an attention state, avoiding UI flicker and
+    /// false notifications without delaying real waiting states for long.
+    private func stabilizeTransientCodexStatuses(_ incoming: [CursorAgent]) -> [CursorAgent] {
+        incoming.map { agent in
+            guard agent.source == .codex,
+                  let previousStatus = lastStatuses[agent.id],
+                  previousStatus == .running,
+                  agent.status.needsAttention else {
+                pendingCodexStatuses.removeValue(forKey: agent.id)
+                return agent
+            }
+
+            let candidate = pendingCodexStatuses[agent.id]
+            let nextCount = candidate?.status == agent.status ? (candidate?.count ?? 0) + 1 : 1
+            pendingCodexStatuses[agent.id] = (agent.status, nextCount)
+
+            guard nextCount < 2, let previousAgent = lastPublishedAgents[agent.id] else {
+                pendingCodexStatuses.removeValue(forKey: agent.id)
+                return agent
+            }
+            return previousAgent
         }
     }
 }

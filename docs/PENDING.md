@@ -187,7 +187,7 @@ Scope:
 - Add toggles for completion notifications.
 - Add toggles for approval/input/blocked notifications.
 - Add toggles for failure notifications.
-- Add an optional quiet mode or "only notify when attention is needed" mode.
+- Add a master notification toggle so users can disable all alerts at once.
 - Keep debug notification behavior separate from production notification
   behavior.
 
@@ -196,6 +196,13 @@ Done when:
 - Users can reduce notification noise without disabling all monitoring.
 - Preferences persist across restarts.
 - Notifications still work in packaged app mode and debug fallback mode.
+
+Current status:
+
+- Implemented completion, attention-needed, failure, and quiet-mode toggles.
+- Preferences persist in `UserDefaults` and are applied before each transition
+  notification is delivered.
+- Debug fallback and packaged notification delivery remain separate.
 
 ### 10. Multi-display/notch QA
 

@@ -30,8 +30,13 @@ final class NotificationService {
         }
     }
 
-    func notifyTransition(for agent: CursorAgent, from oldStatus: AgentStatus, to newStatus: AgentStatus) {
-        guard isAuthorized, shouldNotify(from: oldStatus, to: newStatus) else { return }
+    func notifyTransition(
+        for agent: CursorAgent,
+        from oldStatus: AgentStatus,
+        to newStatus: AgentStatus,
+        settings: Settings
+    ) {
+        guard isAuthorized, shouldNotify(from: oldStatus, to: newStatus, settings: settings) else { return }
 
         if !Self.canUseUserNotifications {
             deliverDebugNotification(title: notificationTitle(for: agent, status: newStatus), body: agent.latestStatus)
@@ -75,14 +80,18 @@ final class NotificationService {
             .replacingOccurrences(of: "\n", with: " ")
     }
 
-    private func shouldNotify(from oldStatus: AgentStatus, to newStatus: AgentStatus) -> Bool {
+    private func shouldNotify(from oldStatus: AgentStatus, to newStatus: AgentStatus, settings: Settings) -> Bool {
         guard oldStatus != newStatus else { return false }
+        guard settings.notificationsEnabled else { return false }
 
         if newStatus == .completed, !oldStatus.isTerminal {
-            return true
+            return settings.completionNotifications
+        }
+        if newStatus == .failed, oldStatus != .failed {
+            return settings.failureNotifications
         }
         if newStatus.needsAttention, !oldStatus.needsAttention {
-            return true
+            return settings.attentionNotifications
         }
         return false
     }

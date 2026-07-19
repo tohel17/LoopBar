@@ -7,7 +7,7 @@ enum IslandMetrics {
     static let expandedWidth: CGFloat = 520
     static let compactShadowPadding: CGFloat = 0
     static let expandedShadowPadding: CGFloat = 0
-    static let settingsBodyHeight: CGFloat = 390
+    static let settingsBodyHeight: CGFloat = 520
 
     static func listHeight(agentCount: Int) -> CGFloat {
         guard agentCount > 0 else { return 56 }
