@@ -39,6 +39,10 @@ struct CursorAPI {
                     h.createdAt
                 ) AS updated_at,
                 COALESCE(json_extract(kv.value, '$.unifiedMode'), json_extract(h.value, '$.unifiedMode')) AS mode,
+                COALESCE(
+                    NULLIF(json_extract(h.value, '$.workspaceIdentifier.configPath.fsPath'), ''),
+                    NULLIF(json_extract(h.value, '$.draftTarget.environment.configPath.fsPath'), '')
+                ) AS workspace_path,
                 NULLIF(json_extract(kv.value, '$.status'), '') AS composer_status,
                 COALESCE(json_array_length(json_extract(kv.value, '$.generatingBubbleIds')), 0) AS generating_bubble_count,
                 COALESCE(json_extract(kv.value, '$.isContinuationInProgress'), 0) AS is_continuation_in_progress,
@@ -87,7 +91,7 @@ struct CursorAPI {
                 progress: nil,
                 latestStatus: Self.statusText(for: status, updatedAt: updatedAt, modeLabel: modeLabel),
                 updatedAt: updatedAt,
-                url: Self.cursorAgentURL(composerId: composer.id)
+                url: Self.cursorAgentURL(composer: composer)
             )
         }
     }
@@ -138,13 +142,14 @@ struct CursorAPI {
         }
     }
 
-    /// Cursor's internal agent-link scheme: `cursor.agent://local/<composerId>`.
-    private static func cursorAgentURL(composerId: String) -> URL? {
-        var components = URLComponents()
-        components.scheme = "cursor.agent"
-        components.host = "local"
-        components.path = "/\(composerId)"
-        return components.url
+    /// Cursor does not expose a confirmed external route for opening a specific
+    /// composer. Prefer opening the associated workspace in Cursor; that gets
+    /// the user to the right project/window without relying on fake deep links.
+    private static func cursorAgentURL(composer: LocalComposer) -> URL? {
+        guard let workspacePath = composer.workspacePath, !workspacePath.isEmpty else {
+            return URL(string: "cursor://")
+        }
+        return URL(fileURLWithPath: workspacePath)
     }
 
     private struct LocalComposer: Decodable {
@@ -153,6 +158,7 @@ struct CursorAPI {
         let subtitle: String?
         let updatedAt: Double
         let mode: String?
+        let workspacePath: String?
         let composerStatus: String?
         let generatingBubbleCount: Int
         let isContinuationInProgress: Bool
@@ -183,6 +189,7 @@ struct CursorAPI {
 
         enum CodingKeys: String, CodingKey {
             case id, title, subtitle, mode
+            case workspacePath = "workspace_path"
             case composerStatus = "composer_status"
             case generatingBubbleCount = "generating_bubble_count"
             case isContinuationInProgress = "is_continuation_in_progress"
@@ -203,6 +210,7 @@ struct CursorAPI {
             subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
             updatedAt = try container.decode(Double.self, forKey: .updatedAt)
             mode = try container.decodeIfPresent(String.self, forKey: .mode)
+            workspacePath = try container.decodeIfPresent(String.self, forKey: .workspacePath)
             composerStatus = try container.decodeIfPresent(String.self, forKey: .composerStatus)
             generatingBubbleCount = try container.decodeIfPresent(Int.self, forKey: .generatingBubbleCount) ?? 0
             isContinuationInProgress = try Self.decodeSQLiteBool(container, .isContinuationInProgress)

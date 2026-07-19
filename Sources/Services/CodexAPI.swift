@@ -13,7 +13,7 @@ struct CodexAPI {
 
     private func readThreads(from databaseURL: URL) throws -> [CursorAgent] {
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
-            throw APIError.localCodexUnavailable("Codex's local state database was not found.")
+            return []
         }
 
         let query = """
@@ -36,7 +36,7 @@ struct CodexAPI {
         let output = Pipe()
         let error = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = ["-readonly", "-json", databaseURL.path, query]
+        process.arguments = ["-readonly", "-cmd", ".timeout 1000", "-json", databaseURL.path, query]
         process.standardOutput = output
         process.standardError = error
         try process.run()
@@ -70,7 +70,7 @@ struct CodexAPI {
     private static func codexThreadURL(threadId: String) -> URL? {
         var components = URLComponents()
         components.scheme = "codex"
-        components.host = "thread"
+        components.host = "threads"
         components.path = "/\(threadId)"
         return components.url
     }

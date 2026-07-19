@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// Single agent row in the expanded agents list.
@@ -53,7 +52,7 @@ struct AgentRowView: View {
                 .strokeBorder(.white.opacity(0.09), lineWidth: 0.8)
         }
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onTapGesture { openAgent(agent) }
+        .onTapGesture { AgentOpener.open(agent) }
     }
 
     private var color: Color {
@@ -69,31 +68,4 @@ struct AgentRowView: View {
         }
     }
 
-    private func openAgent(_ agent: CursorAgent) {
-        guard let url = agent.url else { return }
-        switch agent.source {
-        case .cursor:
-            openInCursor(url)
-        case .codex:
-            openInCodex(url)
-        }
-    }
-
-    private func openInCursor(_ url: URL) {
-        let cursorApp = URL(fileURLWithPath: "/Applications/Cursor.app")
-        if FileManager.default.fileExists(atPath: cursorApp.path) {
-            NSWorkspace.shared.open([url], withApplicationAt: cursorApp, configuration: NSWorkspace.OpenConfiguration())
-        } else {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    private func openInCodex(_ url: URL) {
-        let configuration = NSWorkspace.OpenConfiguration()
-        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") {
-            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: configuration)
-        } else {
-            NSWorkspace.shared.open(url)
-        }
-    }
 }

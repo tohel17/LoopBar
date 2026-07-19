@@ -12,9 +12,13 @@ final class AgentStore: ObservableObject {
 
     private let cursorAPI = CursorAPI()
     private let codexAPI = CodexAPI()
+    private let notificationService = NotificationService()
     private var pollingTask: Task<Void, Never>?
+    private var hasLoadedInitialSnapshot = false
+    private var lastStatuses: [String: AgentStatus] = [:]
 
     init() {
+        notificationService.requestAuthorization()
         restartPolling()
     }
 
@@ -46,13 +50,19 @@ final class AgentStore: ObservableObject {
         do {
             incoming.append(contentsOf: try await codexAPI.fetchAgents())
         } catch {
-            errors.append("Codex: \(error.localizedDescription)")
+            // Codex can briefly lock, rotate, or delay its local SQLite state
+            // when idle/backgrounded. Keep the last known Codex snapshot instead
+            // of surfacing a noisy transient database error in the island.
+            incoming.append(contentsOf: agents.filter { $0.source == .codex })
         }
 
         lastUpdated = .now
 
-        if !incoming.isEmpty {
-            agents = incoming.sorted(by: sortAgents)
+        let sortedIncoming = incoming.sorted(by: sortAgents)
+        notifyStatusTransitions(for: sortedIncoming)
+
+        if !sortedIncoming.isEmpty {
+            agents = sortedIncoming
             errorMessage = errors.isEmpty ? nil : errors.joined(separator: " · ")
         } else {
             agents = []
@@ -101,6 +111,21 @@ final class AgentStore: ObservableObject {
             return 3
         case .completed, .cancelled:
             return 4
+        }
+    }
+
+    private func notifyStatusTransitions(for incoming: [CursorAgent]) {
+        let incomingStatuses = Dictionary(uniqueKeysWithValues: incoming.map { ($0.id, $0.status) })
+        defer {
+            lastStatuses = incomingStatuses
+            hasLoadedInitialSnapshot = true
+        }
+
+        guard hasLoadedInitialSnapshot else { return }
+
+        for agent in incoming {
+            guard let oldStatus = lastStatuses[agent.id] else { continue }
+            notificationService.notifyTransition(for: agent, from: oldStatus, to: agent.status)
         }
     }
 }
