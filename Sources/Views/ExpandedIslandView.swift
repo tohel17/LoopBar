@@ -37,7 +37,7 @@ struct ExpandedIslandView: View {
                             AgentRowView(agent: agent)
                         }
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 28)
                     .padding(.vertical, 10)
                 }
                 .frame(height: IslandMetrics.listHeight(agentCount: store.agents.count))
@@ -47,7 +47,7 @@ struct ExpandedIslandView: View {
                 Text(error)
                     .font(.caption2)
                     .foregroundStyle(.red.opacity(0.9))
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 30)
                     .padding(.bottom, 8)
             }
         }

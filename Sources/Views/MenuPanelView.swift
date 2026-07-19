@@ -46,7 +46,7 @@ struct MenuPanelView: View {
                 NSApp.terminate(nil)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 30)
         .padding(.vertical, 12)
     }
 
@@ -54,7 +54,7 @@ struct MenuPanelView: View {
         Rectangle()
             .fill(Color.black)
             .frame(height: 1)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 28)
     }
 }
 
@@ -62,20 +62,36 @@ private struct IslandShape: Shape {
     let expanded: Bool
 
     func path(in rect: CGRect) -> Path {
-        let radius = min(expanded ? 24.0 : 22.0, rect.height / 2)
+        let bodyInset = expanded ? 15.0 : 13.0
+        let shoulderRadius = expanded ? 16.0 : 14.0
+        let bottomRadius = min(expanded ? 24.0 : 22.0, rect.height / 2)
+
+        let bodyMinX = rect.minX + bodyInset
+        let bodyMaxX = rect.maxX - bodyInset
+        let topMinX = max(rect.minX, bodyMinX - shoulderRadius)
+        let topMaxX = min(rect.maxX, bodyMaxX + shoulderRadius)
         var path = Path()
 
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+        path.move(to: CGPoint(x: topMinX, y: rect.minY))
+        path.addLine(to: CGPoint(x: topMaxX, y: rect.minY))
         path.addQuadCurve(
-            to: CGPoint(x: rect.maxX - radius, y: rect.maxY),
-            control: CGPoint(x: rect.maxX, y: rect.maxY)
+            to: CGPoint(x: bodyMaxX, y: rect.minY + shoulderRadius),
+            control: CGPoint(x: bodyMaxX, y: rect.minY)
         )
-        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+        path.addLine(to: CGPoint(x: bodyMaxX, y: rect.maxY - bottomRadius))
         path.addQuadCurve(
-            to: CGPoint(x: rect.minX, y: rect.maxY - radius),
-            control: CGPoint(x: rect.minX, y: rect.maxY)
+            to: CGPoint(x: bodyMaxX - bottomRadius, y: rect.maxY),
+            control: CGPoint(x: bodyMaxX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: bodyMinX + bottomRadius, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: bodyMinX, y: rect.maxY - bottomRadius),
+            control: CGPoint(x: bodyMinX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: bodyMinX, y: rect.minY + shoulderRadius))
+        path.addQuadCurve(
+            to: CGPoint(x: topMinX, y: rect.minY),
+            control: CGPoint(x: bodyMinX, y: rect.minY)
         )
         path.closeSubpath()
 

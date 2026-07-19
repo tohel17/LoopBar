@@ -3,7 +3,7 @@ import CoreGraphics
 /// Sizing constants and helpers for the notch island panel and SwiftUI content.
 enum IslandMetrics {
     /// Compact island hugs its header content instead of stretching into a wide pill.
-    static let compactWidth: CGFloat = 330
+    static let compactWidth: CGFloat = 370
     static let expandedWidth: CGFloat = 520
     static let compactShadowPadding: CGFloat = 0
     static let expandedShadowPadding: CGFloat = 0

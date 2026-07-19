@@ -16,12 +16,12 @@ struct CompactIslandView: View {
                 RunningCountView(count: runningCount)
                     .frame(width: 104, alignment: .leading)
 
-                Spacer(minLength: 82)
+                Spacer(minLength: 60)
 
                 StatusBadge(status: islandStatus)
                     .frame(width: 118, alignment: .trailing)
             }
-            .padding(.horizontal, expanded ? 18 : 14)
+            .padding(.horizontal, expanded ? 30 : 32)
             .padding(.vertical, expanded ? 14 : 11)
         }
         .buttonStyle(.plain)
