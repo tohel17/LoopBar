@@ -93,7 +93,19 @@ struct CodexAPI {
         let tail = rolloutTail(at: thread.rolloutPath)
         let lastTaskStarted = latestIndex(of: "\"type\":\"task_started\"", in: tail) ?? -1
         let lastTaskComplete = latestIndex(of: "\"type\":\"task_complete\"", in: tail) ?? -1
-        let checkpoint = max(lastTaskStarted, lastTaskComplete)
+        // Approval records can remain in the rollout after the agent resumes.
+        // Treat later reasoning/messages/tool output as a newer checkpoint so
+        // a stale approval cannot mask active work as "Needs approval".
+        let lastActivity = [
+            "\"type\":\"function_call\"",
+            "\"type\":\"function_call_output\"",
+            "\"type\":\"custom_tool_call\"",
+            "\"type\":\"custom_tool_call_output\"",
+            "\"type\":\"agent_message\"",
+            "\"type\":\"agent_reasoning\"",
+            "\"type\":\"reasoning\""
+        ].compactMap { latestIndex(of: $0, in: tail) }.max() ?? -1
+        let checkpoint = max(lastTaskStarted, lastTaskComplete, lastActivity)
         let lastApproval = [
             "\"type\":\"execCommandApproval\"",
             "\"type\":\"applyPatchApproval\"",

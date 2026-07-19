@@ -24,7 +24,8 @@ struct SettingsView: View {
                 }
             }
         }
-        .padding(isEmbedded ? 22 : 16)
+        .padding(.horizontal, isEmbedded ? 38 : 16)
+        .padding(.vertical, isEmbedded ? 22 : 16)
         .frame(width: isEmbedded ? nil : 420)
         .navigationTitle("LoopBar settings")
         .toolbar {

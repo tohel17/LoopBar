@@ -13,42 +13,70 @@ struct CompactIslandView: View {
     private var hasAgents: Bool { !store.agents.isEmpty }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { timeline in
-            Button {
-                viewModel.toggleExpanded()
-            } label: {
-                HStack(spacing: 0) {
-                    if hasAgents {
-                        CountChip(
-                            count: runningCount,
-                            label: "run",
-                            elapsed: runningCount > 0 ? AgentElapsedText.short(since: runningUpdatedAt, now: timeline.date) : nil,
-                            symbol: "bolt.fill",
-                            color: .green
-                        )
-                        .frame(width: 100, alignment: .leading)
+        Button {
+            viewModel.toggleExpanded()
+        } label: {
+            HStack(spacing: 0) {
+                if hasAgents {
+                    CountChip(count: runningCount, label: "run", symbol: "bolt.fill", color: .green)
+                        .frame(width: 86, alignment: .leading)
 
-                        Spacer(minLength: 88)
+                    Spacer(minLength: 116)
 
-                        CountChip(
-                            count: attentionCount,
-                            label: "wait",
-                            elapsed: attentionCount > 0 ? AgentElapsedText.short(since: attentionUpdatedAt, now: timeline.date) : nil,
-                            symbol: attentionSymbol,
-                            color: attentionColor
+                    CountChip(count: attentionCount, label: "wait", symbol: attentionSymbol, color: attentionColor)
+                        .frame(width: 86, alignment: .trailing)
+                } else {
+                    StatusBadge(status: .waiting)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, expanded ? 30 : 32)
+            .padding(.vertical, expanded ? 14 : 11)
+            .background {
+                // Keep the accent attached to the island itself.  Applying it
+                // to the tiny count label made most of the glow fall outside
+                // the label's bounds and become effectively invisible.
+                ZStack {
+                    if runningCount > 0 {
+                        RadialGradient(
+                            colors: [
+                                Color.green.opacity(0.72),
+                                Color.green.opacity(0.32),
+                                Color.green.opacity(0.08),
+                                .clear
+                            ],
+                            center: .topLeading,
+                            startRadius: 0,
+                            endRadius: 190
                         )
-                        .frame(width: 100, alignment: .trailing)
-                    } else {
-                        StatusBadge(status: .waiting)
-                            .frame(maxWidth: .infinity)
+                        .blur(radius: 12)
+                        .offset(x: -18, y: -30)
+                    }
+
+                    if attentionCount > 0 {
+                        RadialGradient(
+                            colors: [
+                                attentionColor.opacity(0.72),
+                                attentionColor.opacity(0.32),
+                                attentionColor.opacity(0.08),
+                                .clear
+                            ],
+                            center: .topTrailing,
+                            startRadius: 0,
+                            endRadius: 190
+                        )
+                        .blur(radius: 12)
+                        .offset(x: 18, y: -30)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, expanded ? 30 : 32)
-                .padding(.vertical, expanded ? 14 : 11)
+                .allowsHitTesting(false)
             }
-            .buttonStyle(.plain)
+            // Include the padded notch-safe space between the counters in the
+            // button's hit target, not just the text and symbols.
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     private var attentionStatus: AgentStatus? {
@@ -65,21 +93,6 @@ struct CompactIslandView: View {
 
     private var attentionColor: Color {
         attentionCount > 0 ? (attentionStatus?.compactAttentionColor ?? .yellow) : .white.opacity(0.42)
-    }
-
-    private var runningUpdatedAt: Date? {
-        latestUpdatedAt { $0.status == .running }
-    }
-
-    private var attentionUpdatedAt: Date? {
-        latestUpdatedAt { $0.status.needsAttention }
-    }
-
-    private func latestUpdatedAt(where matches: (CursorAgent) -> Bool) -> Date? {
-        store.agents
-            .filter(matches)
-            .compactMap(\.updatedAt)
-            .max()
     }
 }
 
@@ -120,7 +133,6 @@ private enum IslandStatus {
 private struct CountChip: View {
     let count: Int
     let label: String
-    let elapsed: String?
     let symbol: String
     let color: Color
 
@@ -138,15 +150,9 @@ private struct CountChip: View {
             Text(label)
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.68))
-
-            if let elapsed {
-                Text(elapsed)
-                    .font(.system(size: 9, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.42))
-            }
         }
         .lineLimit(1)
-        .minimumScaleFactor(0.8)
+        .minimumScaleFactor(0.86)
     }
 }
 
