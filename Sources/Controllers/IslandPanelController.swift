@@ -72,9 +72,9 @@ final class IslandPanelController {
             .receive(on: RunLoop.main)
             .sink { [weak self] state in
                 guard let self else { return }
-                let chrome = state.isExpandedChrome
-                let animated = chrome != self.lastExpandedChrome
-                self.lastExpandedChrome = chrome
+                let expandedChrome = state.isExpandedChrome
+                let animated = expandedChrome != self.lastExpandedChrome
+                self.lastExpandedChrome = expandedChrome
                 self.reposition(animated: animated)
             }
             .store(in: &cancellables)
@@ -120,22 +120,28 @@ final class IslandPanelController {
         )
         let frame = IslandGeometry.panelFrame(for: contentSize, on: screen)
 
-        guard animated else {
-            panel.setFrame(frame, display: true)
-            panel.orderFrontRegardless()
-            return
-        }
+        if animated {
+            let currentFrame = panel.frame
+            let startWidth = currentFrame.width > 0 ? currentFrame.width : frame.width
+            let startFrame = CGRect(
+                x: frame.midX - (startWidth / 2),
+                y: frame.minY,
+                width: startWidth,
+                height: frame.height
+            )
 
-        viewModel.setAnimating(true)
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.24
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().setFrame(frame, display: true)
-        }, completionHandler: { [weak self] in
-            Task { @MainActor in
-                self?.viewModel.setAnimating(false)
+            // Keep the island glued to the notch: snap vertical changes immediately,
+            // then animate only the horizontal expansion/collapse.
+            panel.setFrame(startFrame, display: true)
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(frame, display: true)
             }
-        })
+        } else {
+            panel.setFrame(frame, display: true)
+        }
         panel.orderFrontRegardless()
     }
 }

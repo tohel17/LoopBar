@@ -10,9 +10,7 @@ struct CompactIslandView: View {
 
     var body: some View {
         Button {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
-                viewModel.toggleExpanded()
-            }
+            viewModel.toggleExpanded()
         } label: {
             HStack(spacing: 0) {
                 RunningCountView(count: runningCount)

@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-/// Owns island UI state: compact/expanded chrome, content pane, hover/animation flags.
+/// Owns island UI state: compact/expanded chrome, content pane, and hover flags.
 ///
 /// Agent data remains in `AgentStore`; this view model only derives presentation state
 /// and forwards user actions that affect the island chrome.
@@ -11,7 +11,6 @@ final class IslandViewModel: ObservableObject {
     @Published var content: IslandContent = .agents
     /// Reserved for future hover affordances; unused by views in this pass.
     @Published var isHovered = false
-    @Published private(set) var isAnimating = false
     @Published private(set) var notificationMessage: String?
 
     private let store: AgentStore
@@ -27,7 +26,7 @@ final class IslandViewModel: ObservableObject {
 
     // MARK: - User actions
 
-    /// Toggle between compact and expanded chrome (same spring as the previous binding).
+    /// Toggle between compact and expanded chrome.
     func toggleExpanded() {
         if state.isExpandedChrome {
             applyState(.compact)
@@ -46,11 +45,6 @@ final class IslandViewModel: ObservableObject {
 
     func setHovered(_ hovered: Bool) {
         isHovered = hovered
-    }
-
-    /// Marks an AppKit panel resize animation as in-flight.
-    func setAnimating(_ animating: Bool) {
-        isAnimating = animating
     }
 
     // MARK: - Store observation
