@@ -24,7 +24,7 @@ struct ExpandedIslandView: View {
                 ContentUnavailableView {
                     Label(emptyMessage, systemImage: viewModel.state == .loading ? "arrow.triangle.2.circlepath" : "bubble.left.and.bubble.right")
                 } description: {
-                    Text(viewModel.state == .loading ? "Checking Cursor and Codex" : "Recent Cursor and Codex activity will appear here.")
+                    Text(viewModel.state == .loading ? "Checking enabled sources" : "Recent activity from enabled sources will appear here.")
                 }
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.62))

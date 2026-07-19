@@ -4,10 +4,10 @@ import CoreGraphics
 enum IslandMetrics {
     /// Compact island hugs its header content instead of stretching into a wide pill.
     static let compactWidth: CGFloat = 330
-    static let expandedWidth: CGFloat = 380
+    static let expandedWidth: CGFloat = 520
     static let compactShadowPadding: CGFloat = 0
     static let expandedShadowPadding: CGFloat = 0
-    static let settingsBodyHeight: CGFloat = 220
+    static let settingsBodyHeight: CGFloat = 390
 
     static func listHeight(agentCount: Int) -> CGFloat {
         guard agentCount > 0 else { return 56 }

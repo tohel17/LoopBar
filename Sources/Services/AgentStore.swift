@@ -41,19 +41,23 @@ final class AgentStore: ObservableObject {
         var incoming: [CursorAgent] = []
         var errors: [String] = []
 
-        do {
-            incoming.append(contentsOf: try await cursorAPI.fetchAgents())
-        } catch {
-            errors.append("Cursor: \(error.localizedDescription)")
+        if settings.cursorEnabled {
+            do {
+                incoming.append(contentsOf: try await cursorAPI.fetchAgents())
+            } catch {
+                errors.append("Cursor: \(error.localizedDescription)")
+            }
         }
 
-        do {
-            incoming.append(contentsOf: try await codexAPI.fetchAgents())
-        } catch {
-            // Codex can briefly lock, rotate, or delay its local SQLite state
-            // when idle/backgrounded. Keep the last known Codex snapshot instead
-            // of surfacing a noisy transient database error in the island.
-            incoming.append(contentsOf: agents.filter { $0.source == .codex })
+        if settings.codexEnabled {
+            do {
+                incoming.append(contentsOf: try await codexAPI.fetchAgents())
+            } catch {
+                // Codex can briefly lock, rotate, or delay its local SQLite state
+                // when idle/backgrounded. Keep the last known Codex snapshot instead
+                // of surfacing a noisy transient database error in the island.
+                incoming.append(contentsOf: agents.filter { $0.source == .codex })
+            }
         }
 
         lastUpdated = .now
