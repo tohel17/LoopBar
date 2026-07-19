@@ -110,6 +110,11 @@ struct CodexAPI {
             "\"status\":\"blocked\"",
             "\"type\":\"goal_updated\",\"status\":\"blocked\""
         ].compactMap { latestIndex(of: $0, in: tail) }.max() ?? -1
+        // Task-level approval is persisted as a shell function call before
+        // its result exists. The approval event itself has no stable type
+        // name, so an outstanding exec call is the reliable signal.
+        let lastExecCall = latestIndex(of: "\"name\":\"exec\"", in: tail) ?? -1
+        let lastExecOutput = latestIndex(of: "\"type\":\"function_call_output\"", in: tail) ?? -1
 
         if lastApproval > checkpoint {
             return .waitingForApproval
@@ -119,6 +124,9 @@ struct CodexAPI {
         }
         if lastBlocked > checkpoint {
             return .blocked
+        }
+        if lastExecCall > max(checkpoint, lastExecOutput) {
+            return .waitingForApproval
         }
         if lastTaskComplete > lastTaskStarted {
             return .completed

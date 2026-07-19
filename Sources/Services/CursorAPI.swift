@@ -100,7 +100,8 @@ struct CursorAPI {
         for composer: LocalComposer,
         isActive: Bool
     ) -> AgentStatus {
-        if composer.hasBlockingPendingActions {
+        let explicitStatus = AgentStatus(apiValue: composer.composerStatus)
+        if explicitStatus == .blocked {
             return .blocked
         }
         if composer.hasPendingPlan {
@@ -109,13 +110,15 @@ struct CursorAPI {
         if composer.hasUnreadMessages {
             return .waitingForInput
         }
+        if composer.hasBlockingPendingActions {
+            return .waitingForApproval
+        }
         if composer.isActivelyGenerating {
             return .running
         }
         if composer.queueItemCount > 0 {
             return .queued
         }
-        let explicitStatus = AgentStatus(apiValue: composer.composerStatus)
         if explicitStatus != .unknown {
             return explicitStatus
         }
