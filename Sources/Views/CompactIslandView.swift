@@ -9,39 +9,48 @@ struct CompactIslandView: View {
 
     private var expanded: Bool { viewModel.isExpandedChrome }
     private var runningCount: Int { store.agents.filter { $0.status == .running }.count }
+    private var attentionCount: Int { store.agents.filter { $0.status.needsAttention }.count }
+    private var hasAgents: Bool { !store.agents.isEmpty }
 
     var body: some View {
         Button {
             viewModel.toggleExpanded()
         } label: {
             HStack(spacing: 0) {
-                RunningCountView(count: runningCount)
-                    .frame(width: 104, alignment: .leading)
+                if hasAgents {
+                    CountChip(count: runningCount, label: "run", symbol: "bolt.fill", color: .green)
+                        .frame(width: 86, alignment: .leading)
 
-                Spacer(minLength: 60)
+                    Spacer(minLength: 116)
 
-                StatusBadge(status: islandStatus)
-                    .frame(width: 118, alignment: .trailing)
+                    CountChip(count: attentionCount, label: "wait", symbol: attentionSymbol, color: attentionColor)
+                        .frame(width: 86, alignment: .trailing)
+                } else {
+                    StatusBadge(status: .waiting)
+                        .frame(maxWidth: .infinity)
+                }
             }
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, expanded ? 30 : 32)
             .padding(.vertical, expanded ? 14 : 11)
         }
         .buttonStyle(.plain)
     }
 
-    private var islandStatus: IslandStatus {
+    private var attentionStatus: AgentStatus? {
         let attentionAgents = store.agents.filter { $0.status.needsAttention }
-        if !attentionAgents.isEmpty {
-            let highestPriority = attentionAgents
-                .map(\.status)
-                .sorted { $0.attentionPriority > $1.attentionPriority }
-                .first!
-            return .attention(status: highestPriority, count: attentionAgents.count)
-        }
-        if runningCount > 0 {
-            return .running
-        }
-        return store.agents.isEmpty ? .waiting : .idle
+        return attentionAgents
+            .map(\.status)
+            .sorted { $0.attentionPriority > $1.attentionPriority }
+            .first
+    }
+
+    private var attentionSymbol: String {
+        attentionStatus?.compactAttentionSymbol ?? "person.crop.circle.badge.questionmark"
+    }
+
+    private var attentionColor: Color {
+        attentionCount > 0 ? (attentionStatus?.compactAttentionColor ?? .yellow) : .white.opacity(0.42)
     }
 }
 
@@ -79,18 +88,29 @@ private enum IslandStatus {
     }
 }
 
-private struct RunningCountView: View {
+private struct CountChip: View {
     let count: Int
+    let label: String
+    let symbol: String
+    let color: Color
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(color)
+
             Text("\(count)")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.system(size: 13, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white)
 
+            Text(label)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.68))
         }
         .lineLimit(1)
+        .minimumScaleFactor(0.86)
     }
 }
 
