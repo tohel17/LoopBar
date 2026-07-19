@@ -5,6 +5,12 @@ struct AgentRowView: View {
     let agent: CursorAgent
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { timeline in
+            row(now: timeline.date)
+        }
+    }
+
+    private func row(now: Date) -> some View {
         HStack(alignment: .center, spacing: 10) {
             ZStack {
                 Circle().fill(color.opacity(0.16))
@@ -26,7 +32,7 @@ struct AgentRowView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(.white.opacity(0.10), in: Capsule())
-                    Text(agent.status.label)
+                    Text(AgentElapsedText.statusLabel(for: agent, now: now))
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(color.opacity(0.9))
                         .padding(.horizontal, 7)

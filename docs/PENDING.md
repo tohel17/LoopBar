@@ -158,63 +158,7 @@ Done when:
 - Filtering does not break sorting, notifications, or compact counts.
 - The UI remains clean inside the notch-sized panel.
 
-### 8. Show elapsed time
-
-Agent rows should show how long an agent has been running or how recently it
-finished, so users can understand status at a glance.
-
-Scope:
-
-- Show labels like `Running · 4m`, `Needs approval · 1m`, or `Completed · 2m ago`.
-- Prefer source-specific timestamps when available.
-- Keep text short enough for the current row layout.
-- Update elapsed labels during refresh without introducing heavy timers.
-
-Done when:
-
-- Running and attention states show useful elapsed duration.
-- Completed states show relative completion/last-active time.
-- The row remains readable and does not wrap awkwardly.
-
-### 9. Group counts in compact island
-
-The compact island should communicate more than just the running count when
-there are multiple agent states.
-
-Scope:
-
-- Compute grouped counts such as running, needs you, done, and maybe failed.
-- Explore compact text formats like `2 running`, `1 needs you`, `3 done`.
-- Prioritize attention counts over completed counts when space is limited.
-- Keep the compact island readable when counts become large.
-
-Done when:
-
-- Compact mode gives a better summary of the overall agent situation.
-- Attention states are impossible to miss.
-- The compact layout still blends cleanly with the notch.
-
-### 10. Attention-only compact mode
-
-When an agent needs the user, compact mode should say that directly instead of
-using a vague status like `Check`.
-
-Scope:
-
-- Replace generic `Check` with specific labels where possible:
-  `Needs approval`, `Waiting`, `Blocked`, or `Failed`.
-- If multiple attention states exist, choose the highest-priority label or show a
-  count such as `2 need you`.
-- Use stronger color/icon treatment only for actionable states.
-- Avoid making normal completed/idle states visually noisy.
-
-Done when:
-
-- A blocked/waiting/approval state is clear from compact mode without expanding.
-- Users can tell whether they need to act immediately.
-- The compact island still feels calm when nothing needs attention.
-
-### 11. Better beta packaging
+### 8. Better beta packaging
 
 The current DMG is functional but very simple. Better packaging will make beta
 testing smoother and reduce first-run confusion.
@@ -233,7 +177,7 @@ Done when:
 - The DMG clearly communicates that it is a beta build.
 - Version/checksum information is easy to verify.
 
-### 12. Notification preferences
+### 9. Notification preferences
 
 Notifications are useful, but users need control over when LoopBar interrupts
 them.
@@ -253,7 +197,7 @@ Done when:
 - Preferences persist across restarts.
 - Notifications still work in packaged app mode and debug fallback mode.
 
-### 13. Multi-display/notch QA
+### 10. Multi-display/notch QA
 
 LoopBar's core UI depends on precise screen positioning, so it needs testing
 across display setups.
@@ -291,3 +235,56 @@ Completed when:
 - A user can turn off a source they do not use.
 - Disabled sources produce no visible errors or notifications.
 - The setting persists across restarts.
+
+### Attention-only compact mode
+
+Compact mode now uses actionable attention labels instead of vague status text.
+Blocked, approval, input, and failure states are prioritized so the island makes
+it clear when the user needs to act.
+
+Implemented:
+
+- Replaced the generic `Check` state with attention-specific compact logic.
+- Prioritized approval/input states above blocked/failed states.
+- Kept normal idle/running states visually calmer.
+
+Completed when:
+
+- Users can tell from compact mode when something needs attention.
+- Attention states do not require expanding the island to understand.
+
+### Group counts in compact island
+
+Compact mode now summarizes the most important grouped states without crowding
+the notch area.
+
+Implemented:
+
+- Added compact count groups for running and waiting/attention states.
+- Removed completed count from compact mode after visual testing because it made
+  the island too text-heavy.
+- Preserved a center gap so compact content does not sit behind the notch.
+
+Completed when:
+
+- Compact mode shows the active workload and attention count at a glance.
+- The minimized island stays readable and visually balanced.
+
+### Show elapsed time
+
+Elapsed time is now visible in both compact and expanded views so stale or stuck
+agents are easier to recognize.
+
+Implemented:
+
+- Added shared short elapsed formatting: seconds, minutes, hours, and days.
+- Compact count chips can show short elapsed text such as `4m`.
+- Expanded rows show status labels such as `Running · 4m` and
+  `Completed · 2m ago`.
+- Elapsed labels update live on a lightweight 30-second timeline.
+
+Completed when:
+
+- Running and attention states show useful elapsed duration.
+- Completed states show recent completion/last-active time.
+- The row and compact layouts remain readable.
