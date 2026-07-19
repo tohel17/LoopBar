@@ -18,7 +18,7 @@ struct CompactIslandView: View {
         } label: {
             HStack(spacing: 0) {
                 if hasAgents {
-                    CountChip(count: runningCount, label: "run", symbol: "bolt.fill", color: .green)
+                    CountChip(count: runningCount, label: "run", symbol: "bolt.fill", color: runningColor)
                         .frame(width: 86, alignment: .leading)
 
                     Spacer(minLength: 116)
@@ -41,9 +41,9 @@ struct CompactIslandView: View {
                     if runningCount > 0 {
                         RadialGradient(
                             colors: [
-                                Color.green.opacity(0.72),
-                                Color.green.opacity(0.32),
-                                Color.green.opacity(0.08),
+                                runningColor.opacity(0.72),
+                                runningColor.opacity(0.32),
+                                runningColor.opacity(0.08),
                                 .clear
                             ],
                             center: .topLeading,
@@ -93,6 +93,15 @@ struct CompactIslandView: View {
 
     private var attentionColor: Color {
         attentionCount > 0 ? (attentionStatus?.compactAttentionColor ?? .yellow) : .white.opacity(0.42)
+    }
+
+    /// Match the expanded row palette. If both sources are running, blue is
+    /// used as the neutral shared accent; green remains reserved for done.
+    private var runningColor: Color {
+        let runningSources = Set(store.agents.filter { $0.status == .running }.map(\.source))
+        if runningSources.contains(.codex) { return .blue }
+        if runningSources.contains(.cursor) { return .purple }
+        return .blue
     }
 }
 
