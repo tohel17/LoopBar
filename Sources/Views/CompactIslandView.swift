@@ -79,9 +79,6 @@ private struct RunningCountView: View {
                 .monospacedDigit()
                 .foregroundStyle(.white)
 
-            Text("running")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.78))
         }
         .lineLimit(1)
     }

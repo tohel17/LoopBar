@@ -2,9 +2,12 @@ import Foundation
 
 /// Reads Cursor's live composer headers without modifying Cursor's data.
 ///
-/// Cursor does not expose a durable local run state, so a composer updated within
-/// the last two minutes is treated as active and all other composers are unknown.
+/// Cursor stores lightweight composer headers separately from richer per-composer
+/// state. We combine both local stores to infer live status without modifying
+/// Cursor's data.
 struct CursorAPI {
+    private static let activeWindow: TimeInterval = 20
+
     private let databaseURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
 
@@ -22,25 +25,36 @@ struct CursorAPI {
         // Prefer lastUpdatedAt when present; otherwise fall back to recency/createdAt columns.
         let query = """
             SELECT
-                composerId AS id,
+                h.composerId AS id,
                 COALESCE(
-                    NULLIF(json_extract(value, '$.name'), ''),
-                    NULLIF(json_extract(value, '$.subtitle'), ''),
+                    NULLIF(json_extract(h.value, '$.name'), ''),
+                    NULLIF(json_extract(h.value, '$.subtitle'), ''),
                     'Untitled local agent'
                 ) AS title,
+                NULLIF(json_extract(h.value, '$.subtitle'), '') AS subtitle,
                 COALESCE(
-                    json_extract(value, '$.lastUpdatedAt'),
-                    lastUpdatedAt,
-                    recency,
-                    createdAt
+                    json_extract(h.value, '$.lastUpdatedAt'),
+                    h.lastUpdatedAt,
+                    h.recency,
+                    h.createdAt
                 ) AS updated_at,
-                json_extract(value, '$.unifiedMode') AS mode,
-                COALESCE(json_extract(value, '$.hasBlockingPendingActions'), 0) AS has_blocking_pending_actions,
-                COALESCE(json_extract(value, '$.hasPendingPlan'), 0) AS has_pending_plan,
-                COALESCE(json_extract(value, '$.hasUnreadMessages'), 0) AS has_unread_messages
-            FROM composerHeaders
-            WHERE isArchived = 0 AND isSubagent = 0
-            ORDER BY COALESCE(lastUpdatedAt, recency, createdAt) DESC
+                COALESCE(json_extract(kv.value, '$.unifiedMode'), json_extract(h.value, '$.unifiedMode')) AS mode,
+                NULLIF(json_extract(kv.value, '$.status'), '') AS composer_status,
+                COALESCE(json_array_length(json_extract(kv.value, '$.generatingBubbleIds')), 0) AS generating_bubble_count,
+                COALESCE(json_extract(kv.value, '$.isContinuationInProgress'), 0) AS is_continuation_in_progress,
+                COALESCE(json_extract(kv.value, '$.isApplyingWorktree'), 0) AS is_applying_worktree,
+                COALESCE(json_extract(kv.value, '$.isCreatingWorktree'), 0) AS is_creating_worktree,
+                COALESCE(json_extract(kv.value, '$.isUndoingWorktree'), 0) AS is_undoing_worktree,
+                COALESCE(json_array_length(json_extract(kv.value, '$.queueItems')), 0) AS queue_item_count,
+                COALESCE(json_extract(kv.value, '$.hasBlockingPendingActions'), json_extract(h.value, '$.hasBlockingPendingActions'), 0) AS has_blocking_pending_actions,
+                COALESCE(json_extract(h.value, '$.hasPendingPlan'), 0) AS has_pending_plan,
+                COALESCE(json_extract(kv.value, '$.hasUnreadMessages'), json_extract(h.value, '$.hasUnreadMessages'), 0) AS has_unread_messages
+            FROM composerHeaders h
+            LEFT JOIN cursorDiskKV kv ON kv.key = 'composerData:' || h.composerId
+            WHERE h.isArchived = 0
+                AND h.isSubagent = 0
+                AND COALESCE(json_extract(h.value, '$.isDraft'), json_extract(kv.value, '$.isDraft'), 0) = 0
+            ORDER BY COALESCE(h.lastUpdatedAt, h.recency, h.createdAt) DESC
             LIMIT 3;
             """
         let process = Process()
@@ -63,7 +77,7 @@ struct CursorAPI {
         let composers = try JSONDecoder().decode([LocalComposer].self, from: data)
         return composers.map { composer in
             let updatedAt = Date(timeIntervalSince1970: composer.updatedAt / 1_000)
-            let isActive = now.timeIntervalSince(updatedAt) < 120
+            let isActive = now.timeIntervalSince(updatedAt) < Self.activeWindow
             let modeLabel = composer.mode.map { " · \($0)" } ?? ""
             let status = Self.status(for: composer, isActive: isActive)
             return CursorAgent(
@@ -78,7 +92,10 @@ struct CursorAPI {
         }
     }
 
-    private static func status(for composer: LocalComposer, isActive: Bool) -> AgentStatus {
+    private static func status(
+        for composer: LocalComposer,
+        isActive: Bool
+    ) -> AgentStatus {
         if composer.hasBlockingPendingActions {
             return .blocked
         }
@@ -87,6 +104,19 @@ struct CursorAPI {
         }
         if composer.hasUnreadMessages {
             return .waitingForInput
+        }
+        if composer.isActivelyGenerating {
+            return .running
+        }
+        if composer.queueItemCount > 0 {
+            return .queued
+        }
+        let explicitStatus = AgentStatus(apiValue: composer.composerStatus)
+        if explicitStatus != .unknown {
+            return explicitStatus
+        }
+        if composer.hasCompletionSubtitle {
+            return .completed
         }
         return isActive ? .running : .unknown
     }
@@ -101,6 +131,8 @@ struct CursorAPI {
             return "Waiting for your response\(modeLabel)"
         case .running:
             return "Active in Cursor\(modeLabel)"
+        case .completed:
+            return "Completed in Cursor\(modeLabel)"
         default:
             return "Last active \(updatedAt.formatted(.relative(presentation: .named)))\(modeLabel)"
         }
@@ -118,14 +150,46 @@ struct CursorAPI {
     private struct LocalComposer: Decodable {
         let id: String
         let title: String
+        let subtitle: String?
         let updatedAt: Double
         let mode: String?
+        let composerStatus: String?
+        let generatingBubbleCount: Int
+        let isContinuationInProgress: Bool
+        let isApplyingWorktree: Bool
+        let isCreatingWorktree: Bool
+        let isUndoingWorktree: Bool
+        let queueItemCount: Int
         let hasBlockingPendingActions: Bool
         let hasPendingPlan: Bool
         let hasUnreadMessages: Bool
 
+        var isActivelyGenerating: Bool {
+            generatingBubbleCount > 0
+                || isContinuationInProgress
+                || isApplyingWorktree
+                || isCreatingWorktree
+                || isUndoingWorktree
+        }
+
+        var hasCompletionSubtitle: Bool {
+            guard let subtitle else { return false }
+            let normalizedSubtitle = subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalizedSubtitle.range(
+                of: "Edited ",
+                options: [.caseInsensitive, .anchored]
+            ) != nil
+        }
+
         enum CodingKeys: String, CodingKey {
-            case id, title, mode
+            case id, title, subtitle, mode
+            case composerStatus = "composer_status"
+            case generatingBubbleCount = "generating_bubble_count"
+            case isContinuationInProgress = "is_continuation_in_progress"
+            case isApplyingWorktree = "is_applying_worktree"
+            case isCreatingWorktree = "is_creating_worktree"
+            case isUndoingWorktree = "is_undoing_worktree"
+            case queueItemCount = "queue_item_count"
             case updatedAt = "updated_at"
             case hasBlockingPendingActions = "has_blocking_pending_actions"
             case hasPendingPlan = "has_pending_plan"
@@ -136,8 +200,16 @@ struct CursorAPI {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try container.decode(String.self, forKey: .id)
             title = try container.decode(String.self, forKey: .title)
+            subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
             updatedAt = try container.decode(Double.self, forKey: .updatedAt)
             mode = try container.decodeIfPresent(String.self, forKey: .mode)
+            composerStatus = try container.decodeIfPresent(String.self, forKey: .composerStatus)
+            generatingBubbleCount = try container.decodeIfPresent(Int.self, forKey: .generatingBubbleCount) ?? 0
+            isContinuationInProgress = try Self.decodeSQLiteBool(container, .isContinuationInProgress)
+            isApplyingWorktree = try Self.decodeSQLiteBool(container, .isApplyingWorktree)
+            isCreatingWorktree = try Self.decodeSQLiteBool(container, .isCreatingWorktree)
+            isUndoingWorktree = try Self.decodeSQLiteBool(container, .isUndoingWorktree)
+            queueItemCount = try container.decodeIfPresent(Int.self, forKey: .queueItemCount) ?? 0
             hasBlockingPendingActions = try Self.decodeSQLiteBool(container, .hasBlockingPendingActions)
             hasPendingPlan = try Self.decodeSQLiteBool(container, .hasPendingPlan)
             hasUnreadMessages = try Self.decodeSQLiteBool(container, .hasUnreadMessages)
