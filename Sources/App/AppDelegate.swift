@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var islandController: IslandPanelController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        CursorHookInstaller.install()
         if NotificationService.canUseUserNotifications {
             UNUserNotificationCenter.current().delegate = self
         }

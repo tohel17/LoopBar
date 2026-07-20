@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py sessionStart"}],
+    "afterAgentResponse": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py afterAgentResponse"}],
+    "afterAgentThought": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py afterAgentThought"}],
+    "beforeShellExecution": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py beforeShellExecution"}],
+    "afterShellExecution": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py afterShellExecution"}],
+    "beforeMCPExecution": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py beforeMCPExecution"}],
+    "afterMCPExecution": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py afterMCPExecution"}],
+    "preToolUse": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py preToolUse"}],
+    "postToolUse": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py postToolUse"}],
+    "stop": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py stop"}],
+    "sessionEnd": [{"command": "~/.cursor/hooks/loopbar-cursor-hook.py sessionEnd"}]
+  }
+}

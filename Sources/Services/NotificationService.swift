@@ -8,6 +8,8 @@ final class NotificationService {
     }
 
     private var isAuthorized = false
+    private var authorizationResolved = false
+    private var pendingNotifications: [(agent: CursorAgent, status: AgentStatus)] = []
 
     func requestAuthorization() {
         guard Self.canUseUserNotifications else {
@@ -16,6 +18,7 @@ final class NotificationService {
             // crashes in that mode because the process has no bundle proxy, so
             // debug builds use the osascript fallback in `notifyTransition`.
             isAuthorized = true
+            authorizationResolved = true
             return
         }
 
@@ -24,8 +27,12 @@ final class NotificationService {
                 isAuthorized = try await UNUserNotificationCenter.current().requestAuthorization(
                     options: [.alert, .sound]
                 )
+                authorizationResolved = true
+                flushPendingNotifications()
             } catch {
                 isAuthorized = false
+                authorizationResolved = true
+                pendingNotifications.removeAll()
             }
         }
     }
@@ -36,7 +43,30 @@ final class NotificationService {
         to newStatus: AgentStatus,
         settings: Settings
     ) {
-        guard isAuthorized, shouldNotify(from: oldStatus, to: newStatus, settings: settings) else { return }
+        guard shouldNotify(from: oldStatus, to: newStatus, settings: settings) else { return }
+
+        guard authorizationResolved else {
+            pendingNotifications.append((agent, newStatus))
+            return
+        }
+        guard isAuthorized else { return }
+
+        deliver(agent: agent, status: newStatus)
+    }
+
+    private func flushPendingNotifications() {
+        guard isAuthorized else {
+            pendingNotifications.removeAll()
+            return
+        }
+        let pending = pendingNotifications
+        pendingNotifications.removeAll()
+        for notification in pending {
+            deliver(agent: notification.agent, status: notification.status)
+        }
+    }
+
+    private func deliver(agent: CursorAgent, status newStatus: AgentStatus) {
 
         if !Self.canUseUserNotifications {
             deliverDebugNotification(title: notificationTitle(for: agent, status: newStatus), body: agent.latestStatus)

@@ -6,18 +6,25 @@ import Foundation
 /// state. We combine both local stores to infer live status without modifying
 /// Cursor's data.
 struct CursorAPI {
-    private static let activeWindow: TimeInterval = 20
+    // Cursor does not keep its live generation flags populated consistently
+    // for long-running composers. Use the header recency window as the
+    // fallback signal for active work.
+    private static let activeWindow: TimeInterval = 120
 
     private let databaseURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
+    private let projectsURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".cursor/projects")
+    private let hookStateURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".cursor/loopbar-agent-events.jsonl")
 
     func fetchAgents() async throws -> [CursorAgent] {
         try await Task.detached(priority: .userInitiated) {
-            try self.readComposers(from: self.databaseURL)
+            try self.readComposers(from: self.databaseURL, projectsURL: self.projectsURL, hookStateURL: self.hookStateURL)
         }.value
     }
 
-    private func readComposers(from databaseURL: URL) throws -> [CursorAgent] {
+    private func readComposers(from databaseURL: URL, projectsURL: URL, hookStateURL: URL) throws -> [CursorAgent] {
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
             throw APIError.localCursorUnavailable("Cursor's local state database was not found.")
         }
@@ -81,9 +88,18 @@ struct CursorAPI {
         let composers = try JSONDecoder().decode([LocalComposer].self, from: data)
         return composers.map { composer in
             let updatedAt = Date(timeIntervalSince1970: composer.updatedAt / 1_000)
-            let isActive = now.timeIntervalSince(updatedAt) < Self.activeWindow
+            let transcriptUpdatedAt = latestTranscriptDate(for: composer.id, in: projectsURL)
+            let activityDate = max(updatedAt, transcriptUpdatedAt ?? .distantPast)
+            let isActive = now.timeIntervalSince(activityDate) < Self.activeWindow
+            let transcriptEnded = transcriptHasEnded(for: composer.id, in: projectsURL)
             let modeLabel = composer.mode.map { " · \($0)" } ?? ""
-            let status = Self.status(for: composer, isActive: isActive)
+            let hookStatus = latestHookStatus(for: composer.id, in: hookStateURL)
+            let status = Self.status(
+                for: composer,
+                isActive: isActive,
+                transcriptEnded: transcriptEnded,
+                hookStatus: hookStatus
+            )
             return CursorAgent(
                 id: composer.id,
                 title: composer.title,
@@ -96,10 +112,55 @@ struct CursorAPI {
         }
     }
 
+    private func latestTranscriptDate(for composerID: String, in projectsURL: URL) -> Date? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: projectsURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        var latest: Date?
+        for case let fileURL as URL in enumerator {
+            guard fileURL.lastPathComponent == "\(composerID).jsonl" else { continue }
+            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true, let date = values?.contentModificationDate else { continue }
+            if latest == nil || date > latest! { latest = date }
+        }
+        return latest
+    }
+
+    private func transcriptHasEnded(for composerID: String, in projectsURL: URL) -> Bool {
+        guard let enumerator = FileManager.default.enumerator(at: projectsURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return false }
+        for case let fileURL as URL in enumerator {
+            guard fileURL.lastPathComponent == "\(composerID).jsonl" else { continue }
+            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8),
+                  let lastLine = contents.split(whereSeparator: \.isNewline).last else { return false }
+            return lastLine.contains("\"type\":\"turn_ended\"")
+                && (lastLine.contains("\"status\":\"success\"") || lastLine.contains("\"status\":\"error\""))
+        }
+        return false
+    }
+
+    private func latestHookStatus(for composerID: String, in stateURL: URL) -> String? {
+        guard let contents = try? String(contentsOf: stateURL, encoding: .utf8) else { return nil }
+        for line in contents.split(whereSeparator: \.isNewline).reversed() {
+            guard line.contains("\"id\":\"\(composerID)\"") else { continue }
+            if line.contains("\"status\":\"running\"") { return "running" }
+            if line.contains("\"status\":\"waitingForApproval\"") { return "waitingForApproval" }
+            if line.contains("\"status\":\"completed\"") { return "completed" }
+        }
+        return nil
+    }
+
     private static func status(
         for composer: LocalComposer,
-        isActive: Bool
+        isActive: Bool,
+        transcriptEnded: Bool,
+        hookStatus: String?
     ) -> AgentStatus {
+        if hookStatus == "running" { return .running }
+        if hookStatus == "waitingForApproval" { return .waitingForApproval }
+        if hookStatus == "completed" { return .completed }
         let explicitStatus = AgentStatus(apiValue: composer.composerStatus)
         if explicitStatus == .blocked {
             return .blocked
@@ -118,6 +179,15 @@ struct CursorAPI {
         }
         if composer.queueItemCount > 0 {
             return .queued
+        }
+        if transcriptEnded {
+            return .completed
+        }
+        // Cursor can briefly leave a stale terminal status in composerData
+        // while the header timestamp continues to advance. Recent activity is
+        // a stronger signal that this Composer is still running.
+        if isActive && explicitStatus.isTerminal {
+            return .running
         }
         if explicitStatus != .unknown {
             return explicitStatus
