@@ -136,6 +136,17 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
             entry.remainder = lines.popLast() ?? ""
         }
 
+        // Cursor does not always append an explicit turn_started record for a
+        // follow-up in an existing composer. Once a terminal turn has already
+        // been observed, any later complete JSONL record means the composer is
+        // active again. A turn_ended record in the same batch will immediately
+        // replace this provisional running state below.
+        if entry.modifiedAt != nil,
+           entry.state.isTerminal,
+           lines.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+            entry.state = .running
+        }
+
         for line in lines {
             apply(line: line, to: &entry.state)
         }
@@ -155,6 +166,17 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
             state = .failed
         } else {
             state = .none
+        }
+    }
+}
+
+private extension CursorTranscriptMonitor.TurnState {
+    var isTerminal: Bool {
+        switch self {
+        case .completed, .failed:
+            return true
+        case .none, .running:
+            return false
         }
     }
 }
