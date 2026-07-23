@@ -84,7 +84,9 @@ Cursor status is inferred from live composer header fields, in this order:
 7. Completion subtitle (`Edited …`) → completed
 8. Recent activity within the 20-second active window → running; otherwise unknown
 
-Codex status is inferred from the tail of each rollout JSONL file. Task completion, approval, input, blocked markers, tool calls, and newer activity are compared by their position in the rollout. If a stale approval or input marker is followed by newer reasoning, messages, tool calls, or tool output, the newer activity wins and the task is shown as running. This prevents old events from leaving an active Codex task stuck in a waiting state. Codex considers a thread active when its database update is within the 120-second active window.
+Codex uses a hybrid liveness model. `ps` finds terminal-attached Codex CLI processes and one batched `lsof` maps them to open rollout JSONL files. Process presence determines whether a mapped task is alive, while the rollout tail determines whether that live task is running, waiting for approval/input, or blocked. For threads identified as CLI/terminal-originated, a complete process snapshot can also establish that a task has stopped. Durable task-completion markers remain valid after the process exits.
+
+If process discovery is unavailable, cannot map every Codex process, or the thread comes from a non-terminal Codex surface, LoopBar safely falls back to its previous persisted-state model. Task completion, approval, input, blocked markers, tool calls, and newer activity are compared by their position in the rollout, with a 120-second database-recency window as the final fallback. This avoids declaring desktop/background tasks stopped merely because no terminal process exists.
 
 Because neither local application exposes a complete durable run-state contract for every task, LoopBar preserves an `unknown` state when the available evidence is insufficient instead of guessing completion.
 
@@ -103,6 +105,7 @@ LoopBar uses a small MVVM-style split:
 - `Sources/Services/AgentStore.swift` — main-actor observable store, source polling, sorting, transient error handling, and status-transition notification triggers.
 - `Sources/Services/CursorAPI.swift` — read-only SQLite access to Cursor's `composerHeaders` and related `cursorDiskKV` records.
 - `Sources/Services/CodexAPI.swift` — read-only SQLite access to Codex's local `threads` table and rollout JSONL tails.
+- `Sources/Services/CodexProcessDiscovery.swift` — read-only `ps`/`lsof` discovery that maps terminal-attached Codex processes to live rollout files.
 - `Sources/Services/AgentOpener.swift` — opens Cursor or Codex when a row or notification is clicked.
 - `Sources/Services/NotificationService.swift` — posts status-transition notifications with sound in packaged `.app` builds and uses an `osascript` notification fallback for raw SwiftPM/debug runs.
 - `Sources/Services/Settings.swift` — persists refresh interval and Cursor/Codex source toggles in `UserDefaults`.
@@ -118,7 +121,7 @@ LoopBar uses a small MVVM-style split:
 The runtime flow is:
 
 1. `AgentStore` starts a polling task and requests notification authorization.
-2. On each refresh it reads each enabled source through its local read-only adapter.
+2. On each refresh it reads each enabled source through its local read-only adapter. Codex also performs process discovery to establish live CLI sessions.
 3. Cursor and Codex records are normalized into `CursorAgent` values.
 4. The store sorts the combined snapshot, compares statuses with the previous snapshot, and emits notifications for completed or newly actionable states.
 5. SwiftUI observes the store and view model. Expanded content and panel height update when data, errors, or selected content change.
@@ -127,7 +130,7 @@ The runtime flow is:
 
 The refresh interval defaults to one second and is clamped between one and 60 seconds. Cursor and Codex monitoring can be enabled independently. A temporary Codex SQLite read failure keeps the previous Codex snapshot instead of replacing it with a noisy empty/error state.
 
-Each source is queried only when its setting is enabled. Cursor reads `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; Codex reads `~/.codex/state_5.sqlite`. No API key, network connection, or external service is required.
+Each source is queried only when its setting is enabled. Cursor reads `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; Codex reads `~/.codex/state_5.sqlite`, rollout JSONL files, and the local process table. No API key, network connection, or external service is required.
 
 ## Notifications and opening tasks
 
