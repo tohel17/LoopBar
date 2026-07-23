@@ -3,7 +3,7 @@ import Foundation
 /// Resolves Cursor composer transcripts once, then reads only bytes appended
 /// since the previous refresh.
 final class CursorTranscriptMonitor: @unchecked Sendable {
-    enum TurnState: Sendable {
+    enum TurnState: Sendable, Equatable {
         case none
         case running
         case completed

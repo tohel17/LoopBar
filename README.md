@@ -81,7 +81,7 @@ Cursor Desktop status is inferred without hooks, in this order:
 4. Active generation, continuation, worktree application/creation/undo → running
 5. Queue items → queued
 6. Incrementally parsed transcript turn state → running, completed, or failed
-7. Fresh activity within 15 seconds overrides a stale terminal database status
+7. An `aborted` follow-up with an advanced timestamp stays running until Cursor writes its terminal status
 8. Other explicit status values
 9. Completion subtitle (`Edited …`) → completed
 10. Recent activity within the 15-second fallback window → running; otherwise unknown
@@ -108,6 +108,7 @@ LoopBar uses a small MVVM-style split:
 - `Sources/Services/CursorAPI.swift` — read-only SQLite access to Cursor's `composerHeaders` and related `cursorDiskKV` records.
 - `Sources/Services/CursorFileWatcher.swift` — debounced macOS filesystem events for Cursor's state and transcript directories.
 - `Sources/Services/CursorTranscriptMonitor.swift` — cached transcript discovery and incremental turn-state parsing.
+- `Sources/Services/CursorActivityTracker.swift` — cross-refresh inference for Cursor's `aborted`-while-running follow-up lifecycle.
 - `Sources/Services/CursorDesktopProcessDiscovery.swift` — application-level Cursor Desktop process guard.
 - `Sources/Services/CursorHookCleanup.swift` — one-time removal of LoopBar's legacy hook without changing unrelated user hook commands.
 - `Sources/Services/CodexAPI.swift` — read-only SQLite access to Codex's local `threads` table and rollout JSONL tails.

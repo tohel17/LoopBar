@@ -17,6 +17,7 @@ final class CursorAPI: @unchecked Sendable {
         .appendingPathComponent(".cursor/projects")
     private let transcriptMonitor = CursorTranscriptMonitor()
     private let processDiscovery = CursorDesktopProcessDiscovery()
+    private let activityTracker = CursorActivityTracker()
 
     func fetchAgents() async throws -> [CursorAgent] {
         try await Task.detached(priority: .userInitiated) {
@@ -103,6 +104,7 @@ final class CursorAPI: @unchecked Sendable {
             projectsURL: projectsURL
         )
         let isCursorRunning = processDiscovery.isRunning()
+        activityTracker.retain(composerIDs: Set(composers.map(\.id)))
         return composers.map { composer in
             let databaseUpdatedAt = Date(
                 timeIntervalSince1970: composer.updatedAt / 1_000
@@ -114,12 +116,27 @@ final class CursorAPI: @unchecked Sendable {
             )
             let isRecentlyActive = now.timeIntervalSince(activityDate)
                 < Self.activeWindow
+            let isDatabaseRecentlyUpdated =
+                now.timeIntervalSince(databaseUpdatedAt) < Self.activeWindow
+            let inferredFollowUpRunning = activityTracker.isInferredRunning(
+                composerID: composer.id,
+                updatedAt: databaseUpdatedAt,
+                rawStatus: composer.composerStatus,
+                isRecentlyUpdated: isDatabaseRecentlyUpdated,
+                hasDirectRunningEvidence: composer.isActivelyGenerating
+                    || (
+                        transcript?.state == .running
+                            && isRecentlyActive
+                    ),
+                isCursorRunning: isCursorRunning
+            )
             let modeLabel = composer.mode.map { " · \($0)" } ?? ""
             let status = Self.status(
                 for: composer,
                 transcriptState: transcript?.state ?? .none,
                 isRecentlyActive: isRecentlyActive,
-                isCursorRunning: isCursorRunning
+                isCursorRunning: isCursorRunning,
+                inferredFollowUpRunning: inferredFollowUpRunning
             )
             return CursorAgent(
                 id: composer.id,
@@ -141,7 +158,8 @@ final class CursorAPI: @unchecked Sendable {
         for composer: LocalComposer,
         transcriptState: CursorTranscriptMonitor.TurnState,
         isRecentlyActive: Bool,
-        isCursorRunning: Bool?
+        isCursorRunning: Bool?,
+        inferredFollowUpRunning: Bool
     ) -> AgentStatus {
         let explicitStatus = AgentStatus(apiValue: composer.composerStatus)
 
@@ -178,6 +196,9 @@ final class CursorAPI: @unchecked Sendable {
         if composer.hasBlockingPendingActions {
             return .waitingForApproval
         }
+        if inferredFollowUpRunning {
+            return .running
+        }
         if composer.isActivelyGenerating {
             return .running
         }
@@ -196,14 +217,6 @@ final class CursorAPI: @unchecked Sendable {
             return .failed
         case .none:
             break
-        }
-
-        // Cursor can leave a completed/failed composerData status in place
-        // when the user submits a follow-up. A fresh database or transcript
-        // write is stronger evidence for the short active window. Explicit
-        // transcript completion above still wins immediately.
-        if isRecentlyActive, explicitStatus.isTerminal {
-            return .running
         }
 
         if explicitStatus != .unknown {
