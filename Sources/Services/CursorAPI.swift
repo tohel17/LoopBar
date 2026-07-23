@@ -5,26 +5,32 @@ import Foundation
 /// Cursor stores lightweight composer headers separately from richer per-composer
 /// state. We combine both local stores to infer live status without modifying
 /// Cursor's data.
-struct CursorAPI {
+final class CursorAPI: @unchecked Sendable {
     // Cursor does not keep its live generation flags populated consistently
     // for long-running composers. Use the header recency window as the
     // fallback signal for active work.
-    private static let activeWindow: TimeInterval = 120
+    private static let activeWindow: TimeInterval = 15
 
     private let databaseURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
     private let projectsURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".cursor/projects")
-    private let hookStateURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".cursor/loopbar-agent-events.jsonl")
+    private let transcriptMonitor = CursorTranscriptMonitor()
+    private let processDiscovery = CursorDesktopProcessDiscovery()
 
     func fetchAgents() async throws -> [CursorAgent] {
         try await Task.detached(priority: .userInitiated) {
-            try self.readComposers(from: self.databaseURL, projectsURL: self.projectsURL, hookStateURL: self.hookStateURL)
+            try self.readComposers(
+                from: self.databaseURL,
+                projectsURL: self.projectsURL
+            )
         }.value
     }
 
-    private func readComposers(from databaseURL: URL, projectsURL: URL, hookStateURL: URL) throws -> [CursorAgent] {
+    private func readComposers(
+        from databaseURL: URL,
+        projectsURL: URL
+    ) throws -> [CursorAgent] {
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
             throw APIError.localCursorUnavailable("Cursor's local state database was not found.")
         }
@@ -72,7 +78,13 @@ struct CursorAPI {
         let output = Pipe()
         let error = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = ["-readonly", "-json", databaseURL.path, query]
+        process.arguments = [
+            "-readonly",
+            "-cmd", ".timeout 500",
+            "-json",
+            databaseURL.path,
+            query
+        ]
         process.standardOutput = output
         process.standardError = error
         try process.run()
@@ -86,82 +98,74 @@ struct CursorAPI {
         let now = Date()
         let data = output.fileHandleForReading.readDataToEndOfFile()
         let composers = try JSONDecoder().decode([LocalComposer].self, from: data)
+        let transcripts = transcriptMonitor.snapshots(
+            for: Set(composers.map(\.id)),
+            projectsURL: projectsURL
+        )
+        let isCursorRunning = processDiscovery.isRunning()
         return composers.map { composer in
-            let updatedAt = Date(timeIntervalSince1970: composer.updatedAt / 1_000)
-            let transcriptUpdatedAt = latestTranscriptDate(for: composer.id, in: projectsURL)
-            let activityDate = max(updatedAt, transcriptUpdatedAt ?? .distantPast)
-            let isActive = now.timeIntervalSince(activityDate) < Self.activeWindow
-            let transcriptEnded = transcriptHasEnded(for: composer.id, in: projectsURL)
+            let databaseUpdatedAt = Date(
+                timeIntervalSince1970: composer.updatedAt / 1_000
+            )
+            let transcript = transcripts[composer.id]
+            let activityDate = max(
+                databaseUpdatedAt,
+                transcript?.modifiedAt ?? .distantPast
+            )
+            let isRecentlyActive = now.timeIntervalSince(activityDate)
+                < Self.activeWindow
             let modeLabel = composer.mode.map { " · \($0)" } ?? ""
-            let hookStatus = latestHookStatus(for: composer.id, in: hookStateURL)
             let status = Self.status(
                 for: composer,
-                isActive: isActive,
-                transcriptEnded: transcriptEnded,
-                hookStatus: hookStatus
+                transcriptState: transcript?.state ?? .none,
+                isRecentlyActive: isRecentlyActive,
+                isCursorRunning: isCursorRunning
             )
             return CursorAgent(
                 id: composer.id,
                 title: composer.title,
                 status: status,
                 progress: nil,
-                latestStatus: Self.statusText(for: status, updatedAt: updatedAt, modeLabel: modeLabel),
-                updatedAt: updatedAt,
+                latestStatus: Self.statusText(
+                    for: status,
+                    updatedAt: activityDate,
+                    modeLabel: modeLabel
+                ),
+                updatedAt: activityDate,
                 url: Self.cursorAgentURL(composer: composer)
             )
         }
     }
 
-    private func latestTranscriptDate(for composerID: String, in projectsURL: URL) -> Date? {
-        guard let enumerator = FileManager.default.enumerator(
-            at: projectsURL,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-
-        var latest: Date?
-        for case let fileURL as URL in enumerator {
-            guard fileURL.lastPathComponent == "\(composerID).jsonl" else { continue }
-            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let date = values?.contentModificationDate else { continue }
-            if latest == nil || date > latest! { latest = date }
-        }
-        return latest
-    }
-
-    private func transcriptHasEnded(for composerID: String, in projectsURL: URL) -> Bool {
-        guard let enumerator = FileManager.default.enumerator(at: projectsURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return false }
-        for case let fileURL as URL in enumerator {
-            guard fileURL.lastPathComponent == "\(composerID).jsonl" else { continue }
-            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8),
-                  let lastLine = contents.split(whereSeparator: \.isNewline).last else { return false }
-            return lastLine.contains("\"type\":\"turn_ended\"")
-                && (lastLine.contains("\"status\":\"success\"") || lastLine.contains("\"status\":\"error\""))
-        }
-        return false
-    }
-
-    private func latestHookStatus(for composerID: String, in stateURL: URL) -> String? {
-        guard let contents = try? String(contentsOf: stateURL, encoding: .utf8) else { return nil }
-        for line in contents.split(whereSeparator: \.isNewline).reversed() {
-            guard line.contains("\"id\":\"\(composerID)\"") else { continue }
-            if line.contains("\"status\":\"running\"") { return "running" }
-            if line.contains("\"status\":\"waitingForApproval\"") { return "waitingForApproval" }
-            if line.contains("\"status\":\"completed\"") { return "completed" }
-        }
-        return nil
-    }
-
     private static func status(
         for composer: LocalComposer,
-        isActive: Bool,
-        transcriptEnded: Bool,
-        hookStatus: String?
+        transcriptState: CursorTranscriptMonitor.TurnState,
+        isRecentlyActive: Bool,
+        isCursorRunning: Bool?
     ) -> AgentStatus {
-        if hookStatus == "running" { return .running }
-        if hookStatus == "waitingForApproval" { return .waitingForApproval }
-        if hookStatus == "completed" { return .completed }
         let explicitStatus = AgentStatus(apiValue: composer.composerStatus)
+
+        // Process state is only an app-level guard. If Cursor Desktop is
+        // closed, preserve durable terminal evidence but do not present stale
+        // approval, queue, or generation fields as live work.
+        if isCursorRunning == false {
+            switch transcriptState {
+            case .completed:
+                return .completed
+            case .failed:
+                return .failed
+            case .none, .running:
+                break
+            }
+            if explicitStatus.isTerminal {
+                return explicitStatus
+            }
+            if composer.hasCompletionSubtitle {
+                return .completed
+            }
+            return .unknown
+        }
+
         if explicitStatus == .blocked {
             return .blocked
         }
@@ -180,22 +184,25 @@ struct CursorAPI {
         if composer.queueItemCount > 0 {
             return .queued
         }
-        if transcriptEnded {
-            return .completed
-        }
-        // Cursor can briefly leave a stale terminal status in composerData
-        // while the header timestamp continues to advance. Recent activity is
-        // a stronger signal that this Composer is still running.
-        if isActive && explicitStatus.isTerminal {
+
+        switch transcriptState {
+        case .running:
             return .running
+        case .completed:
+            return .completed
+        case .failed:
+            return .failed
+        case .none:
+            break
         }
+
         if explicitStatus != .unknown {
             return explicitStatus
         }
         if composer.hasCompletionSubtitle {
             return .completed
         }
-        return isActive ? .running : .unknown
+        return isRecentlyActive ? .running : .unknown
     }
 
     private static func statusText(for status: AgentStatus, updatedAt: Date, modeLabel: String) -> String {
@@ -210,6 +217,8 @@ struct CursorAPI {
             return "Active in Cursor\(modeLabel)"
         case .completed:
             return "Completed in Cursor\(modeLabel)"
+        case .failed:
+            return "Failed in Cursor\(modeLabel)"
         default:
             return "Last active \(updatedAt.formatted(.relative(presentation: .named)))\(modeLabel)"
         }
