@@ -44,7 +44,7 @@ final class CursorFileWatcher {
             callback,
             &context,
             paths as CFArray,
-            kFSEventStreamEventIdSinceNow,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             0.15,
             flags
         ) else {
