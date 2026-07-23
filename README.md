@@ -81,9 +81,10 @@ Cursor Desktop status is inferred without hooks, in this order:
 4. Active generation, continuation, worktree application/creation/undo → running
 5. Queue items → queued
 6. Incrementally parsed transcript turn state → running, completed, or failed
-7. Other explicit status values
-8. Completion subtitle (`Edited …`) → completed
-9. Recent activity within the 15-second fallback window → running; otherwise unknown
+7. Fresh activity within 15 seconds overrides a stale terminal database status
+8. Other explicit status values
+9. Completion subtitle (`Edited …`) → completed
+10. Recent activity within the 15-second fallback window → running; otherwise unknown
 
 macOS filesystem events watch Cursor's local database and project transcript directories. Writes are debounced briefly and trigger an immediate refresh, while the configured polling interval remains as a recovery pass. Transcript paths and read offsets are cached, so subsequent refreshes read only newly appended JSONL data. The Cursor process table is used only to prevent a closed desktop application from leaving a composer marked as running; shared Electron processes are never attributed to individual composers.
 

@@ -198,6 +198,14 @@ final class CursorAPI: @unchecked Sendable {
             break
         }
 
+        // Cursor can leave a completed/failed composerData status in place
+        // when the user submits a follow-up. A fresh database or transcript
+        // write is stronger evidence for the short active window. Explicit
+        // transcript completion above still wins immediately.
+        if isRecentlyActive, explicitStatus.isTerminal {
+            return .running
+        }
+
         if explicitStatus != .unknown {
             return explicitStatus
         }
