@@ -187,7 +187,9 @@ final class CursorAPI: @unchecked Sendable {
 
         switch transcriptState {
         case .running:
-            return .running
+            if isRecentlyActive {
+                return .running
+            }
         case .completed:
             return .completed
         case .failed:
