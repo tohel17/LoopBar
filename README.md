@@ -14,6 +14,12 @@ swift run LoopBar
 
 Click the island to expand it. Click an agent row to open its source application. The gear button opens settings; the refresh button performs an immediate refresh; the power button quits LoopBar.
 
+The app version has one source of truth: `Sources/Resources/version.txt`. After changing it, rebuild LoopBar. Before packaging the `.app`, synchronize its Info.plist:
+
+```sh
+./scripts/sync-version.sh
+```
+
 ## What the island shows
 
 The panel is always centered over the active screen's notch area. Its background is fully black and opaque, with a custom shoulder shape at the top and rounded bottom corners. Compact and expanded modes share the same top header, so the island remains visually attached to the notch while its body changes below it.
@@ -65,7 +71,7 @@ Expanded row colors are:
 | Failed | Red | Red |
 | Cancelled/unknown | Gray | Gray |
 
-The expanded footer and Settings show the packaged app version from `CFBundleShortVersionString`. Direct SwiftPM development launches locate and read `dist/LoopBar.app/Contents/Info.plist` because they do not have bundle metadata of their own. The footer also provides refresh, settings, and quit controls. Settings and the placeholder logs content are selected through the expanded content state.
+The expanded footer and Settings show the packaged app version from `CFBundleShortVersionString`. Direct SwiftPM development launches read the same value from the bundled `version.txt` resource because they do not have an app Info.plist. The footer also provides refresh, settings, and quit controls. Settings and the placeholder logs content are selected through the expanded content state.
 
 ## Status model
 

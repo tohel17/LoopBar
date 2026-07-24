@@ -7,6 +7,9 @@ let package = Package(
     products: [.executable(name: "LoopBar", targets: ["LoopBar"])],
     targets: [.executableTarget(
         name: "LoopBar",
-        path: "Sources"
+        path: "Sources",
+        resources: [
+            .copy("Resources/version.txt")
+        ]
     )]
 )
