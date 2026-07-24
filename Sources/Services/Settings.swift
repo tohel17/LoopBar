@@ -5,6 +5,7 @@ final class Settings: ObservableObject {
     @Published var refreshSeconds: Double { didSet { defaults.set(refreshSeconds, forKey: Keys.refresh) } }
     @Published var cursorEnabled: Bool { didSet { defaults.set(cursorEnabled, forKey: Keys.cursorEnabled) } }
     @Published var codexEnabled: Bool { didSet { defaults.set(codexEnabled, forKey: Keys.codexEnabled) } }
+    @Published var claudeEnabled: Bool { didSet { defaults.set(claudeEnabled, forKey: Keys.claudeEnabled) } }
     @Published var completionNotifications: Bool { didSet { defaults.set(completionNotifications, forKey: Keys.completionNotifications) } }
     @Published var attentionNotifications: Bool { didSet { defaults.set(attentionNotifications, forKey: Keys.attentionNotifications) } }
     @Published var failureNotifications: Bool { didSet { defaults.set(failureNotifications, forKey: Keys.failureNotifications) } }
@@ -14,6 +15,7 @@ final class Settings: ObservableObject {
         static let refresh = "refreshSeconds"
         static let cursorEnabled = "cursorMonitoringEnabled"
         static let codexEnabled = "codexMonitoringEnabled"
+        static let claudeEnabled = "claudeMonitoringEnabled"
         static let completionNotifications = "completionNotificationsEnabled"
         static let attentionNotifications = "attentionNotificationsEnabled"
         static let failureNotifications = "failureNotificationsEnabled"
@@ -24,6 +26,7 @@ final class Settings: ObservableObject {
         refreshSeconds = min(max(defaults.object(forKey: Keys.refresh) as? Double ?? 1, 1), 60)
         cursorEnabled = defaults.object(forKey: Keys.cursorEnabled) as? Bool ?? true
         codexEnabled = defaults.object(forKey: Keys.codexEnabled) as? Bool ?? true
+        claudeEnabled = defaults.object(forKey: Keys.claudeEnabled) as? Bool ?? true
         completionNotifications = defaults.object(forKey: Keys.completionNotifications) as? Bool ?? true
         attentionNotifications = defaults.object(forKey: Keys.attentionNotifications) as? Bool ?? true
         failureNotifications = defaults.object(forKey: Keys.failureNotifications) as? Bool ?? true

@@ -40,6 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 AgentOpener.open(url, source: .cursor)
             case "codex":
                 AgentOpener.open(url, source: .codex)
+            case "file":
+                AgentOpener.open(url, source: .claude)
             default:
                 AgentOpener.open(url)
             }

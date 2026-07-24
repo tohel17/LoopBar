@@ -63,7 +63,12 @@ struct AgentRowView: View {
 
     private var color: Color {
         switch agent.status {
-        case .running: agent.source == .codex ? .blue : .purple
+        case .running:
+            switch agent.source {
+            case .cursor: .purple
+            case .codex: .blue
+            case .claude: .orange
+            }
         case .queued: .yellow
         case .waitingForApproval: .orange
         case .waitingForInput: .cyan

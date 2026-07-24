@@ -51,7 +51,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Local agents")
                         .font(.system(size: 15, weight: .bold))
-                    Text("Monitors Cursor composers and Codex tasks")
+                    Text("Monitors Cursor, Codex, and Claude Code")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.52))
                 }
@@ -107,6 +107,7 @@ struct SettingsView: View {
         Section("Sources") {
             Toggle("Monitor Cursor", isOn: $store.settings.cursorEnabled)
             Toggle("Monitor Codex", isOn: $store.settings.codexEnabled)
+            Toggle("Monitor Claude Code", isOn: $store.settings.claudeEnabled)
             Text("Disabled sources are not polled and do not produce errors or notifications.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -148,6 +149,13 @@ struct SettingsView: View {
                 color: .blue,
                 isOn: $store.settings.codexEnabled
             )
+            sourceToggle(
+                title: "Claude Code",
+                subtitle: "Terminal session activity",
+                icon: "sparkle",
+                color: .orange,
+                isOn: $store.settings.claudeEnabled
+            )
             Text("Disabled sources are not polled or shown in LoopBar.")
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.48))
@@ -155,6 +163,7 @@ struct SettingsView: View {
         .toggleStyle(.switch)
         .onChange(of: store.settings.cursorEnabled) { _, _ in store.updateSettings() }
         .onChange(of: store.settings.codexEnabled) { _, _ in store.updateSettings() }
+        .onChange(of: store.settings.claudeEnabled) { _, _ in store.updateSettings() }
     }
 
     private var notificationPreferences: some View {

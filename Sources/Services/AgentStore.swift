@@ -12,6 +12,7 @@ final class AgentStore: ObservableObject {
 
     private let cursorAPI = CursorAPI()
     private let codexAPI = CodexAPI()
+    private let claudeAPI = ClaudeAPI()
     private let notificationService = NotificationService()
     private var pollingTask: Task<Void, Never>?
     private var hasLoadedInitialSnapshot = false
@@ -59,6 +60,17 @@ final class AgentStore: ObservableObject {
                 // when idle/backgrounded. Keep the last known Codex snapshot instead
                 // of surfacing a noisy transient database error in the island.
                 incoming.append(contentsOf: agents.filter { $0.source == .codex })
+            }
+        }
+
+        if settings.claudeEnabled {
+            do {
+                incoming.append(contentsOf: try await claudeAPI.fetchAgents())
+            } catch {
+                // Process inspection can fail transiently while the terminal
+                // changes state. Preserve the prior Claude snapshot instead
+                // of falsely completing every visible session.
+                incoming.append(contentsOf: agents.filter { $0.source == .claude })
             }
         }
 

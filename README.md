@@ -92,6 +92,9 @@ Because neither local application exposes a complete durable run-state contract 
 
 LoopBar uses a small MVVM-style split:
 
+The proposed Claude Code source architecture is documented in
+[`docs/claude-integration-architecture.md`](docs/claude-integration-architecture.md).
+
 - `Sources/App/LoopBarApp.swift` — executable entry point; creates the store, view model, and panel controller.
 - `Sources/App/AppDelegate.swift` — application lifecycle, notification delegate, and notification click handling.
 - `Sources/Controllers/IslandPanelController.swift` — owns the borderless `NSPanel`, hosts SwiftUI, tracks screen changes, and resizes/repositions the panel. Width changes animate horizontally while vertical notch alignment remains fixed.
