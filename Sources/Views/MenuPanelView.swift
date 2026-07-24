@@ -34,12 +34,12 @@ struct MenuPanelView: View {
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.45))
 
-            if let version = appVersion {
-                Text("v\(version)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.34))
-                    .help("LoopBar version \(version)")
-            }
+            Text("v\(AppVersion.current)")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.42))
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
+                .help("LoopBar version \(AppVersion.current)")
 
             Spacer()
 
@@ -55,16 +55,6 @@ struct MenuPanelView: View {
         }
         .padding(.horizontal, 30)
         .padding(.vertical, 12)
-    }
-
-    private var appVersion: String? {
-        guard let version = Bundle.main.object(
-            forInfoDictionaryKey: "CFBundleShortVersionString"
-        ) as? String else {
-            return nil
-        }
-        let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     private var islandDivider: some View {

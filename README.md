@@ -65,7 +65,7 @@ Expanded row colors are:
 | Failed | Red | Red |
 | Cancelled/unknown | Gray | Gray |
 
-The expanded footer shows the last refresh time, the packaged app version from `CFBundleShortVersionString`, and refresh, settings, and quit controls. Settings and the placeholder logs content are selected through the expanded content state.
+The expanded footer and Settings show the packaged app version from `CFBundleShortVersionString`. Direct SwiftPM development launches use the current development version as a fallback because they do not have an app Info.plist. The footer also provides refresh, settings, and quit controls. Settings and the placeholder logs content are selected through the expanded content state.
 
 ## Status model
 
