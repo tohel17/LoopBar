@@ -94,7 +94,9 @@ Cursor Desktop status is inferred without hooks, in this order:
 
 macOS filesystem events watch Cursor's local database and project transcript directories. Writes are debounced briefly and trigger an immediate refresh, while the configured polling interval remains as a recovery pass. Transcript paths and read offsets are cached, so subsequent refreshes read only newly appended JSONL data. The Cursor process table is used only to prevent a closed desktop application from leaving a composer marked as running; shared Electron processes are never attributed to individual composers.
 
-Codex status is inferred from the tail of each rollout JSONL file. Task completion, approval, input, blocked markers, tool calls, and newer activity are compared by their position in the rollout. If a stale approval or input marker is followed by newer reasoning, messages, tool calls, or tool output, the newer activity wins and the task is shown as running. This prevents old events from leaving an active Codex task stuck in a waiting state. Codex considers a thread active when its database update is within the 120-second active window.
+Codex uses a hybrid liveness model. `ps` finds terminal-attached Codex CLI processes and one batched `lsof` maps them to open rollout JSONL files. Process presence determines whether a mapped task is alive, while the rollout tail determines whether that live task is running, waiting for approval/input, or blocked. For threads identified as CLI/terminal-originated, a complete process snapshot can also establish that a task has stopped. Durable task-completion markers remain valid after the process exits.
+
+If process discovery is unavailable, cannot map every Codex process, or the thread comes from a non-terminal Codex surface, LoopBar safely falls back to its previous persisted-state model. Task completion, approval, input, blocked markers, tool calls, and newer activity are compared by their position in the rollout, with a 120-second database-recency window as the final fallback. This avoids declaring desktop/background tasks stopped merely because no terminal process exists.
 
 Because neither local application exposes a complete durable run-state contract for every task, LoopBar preserves an `unknown` state when the available evidence is insufficient instead of guessing completion.
 
@@ -118,6 +120,7 @@ LoopBar uses a small MVVM-style split:
 - `Sources/Services/CursorDesktopProcessDiscovery.swift` — application-level Cursor Desktop process guard.
 - `Sources/Services/CursorHookCleanup.swift` — one-time removal of LoopBar's legacy hook without changing unrelated user hook commands.
 - `Sources/Services/CodexAPI.swift` — read-only SQLite access to Codex's local `threads` table and rollout JSONL tails.
+- `Sources/Services/CodexProcessDiscovery.swift` — read-only `ps`/`lsof` discovery that maps terminal-attached Codex processes to live rollout files.
 - `Sources/Services/AgentOpener.swift` — opens Cursor or Codex when a row or notification is clicked.
 - `Sources/Services/NotificationService.swift` — posts status-transition notifications with sound in packaged `.app` builds and uses an `osascript` notification fallback for raw SwiftPM/debug runs.
 - `Sources/Services/Settings.swift` — persists refresh interval and Cursor/Codex source toggles in `UserDefaults`.
@@ -142,7 +145,7 @@ The runtime flow is:
 
 The refresh interval defaults to one second and is clamped between one and 60 seconds. Cursor file events can refresh sooner than this interval; the timer is a recovery mechanism and continues to drive Codex monitoring. Cursor and Codex monitoring can be enabled independently. A temporary SQLite read failure keeps the previous snapshot for that source instead of replacing it with a noisy empty/error state.
 
-Each source is queried only when its setting is enabled. Cursor reads `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; Codex reads `~/.codex/state_5.sqlite`. No API key, network connection, or external service is required.
+Each source is queried only when its setting is enabled. Cursor reads `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; Codex reads `~/.codex/state_5.sqlite`, rollout JSONL files, and the local process table. No API key, network connection, or external service is required.
 
 ## Notifications and opening tasks
 

@@ -4,14 +4,19 @@ import Foundation
 struct CodexAPI {
     private let databaseURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".codex/state_5.sqlite")
+    private let processDiscovery = CodexProcessDiscovery()
 
     func fetchAgents() async throws -> [CursorAgent] {
         try await Task.detached(priority: .userInitiated) {
-            try self.readThreads(from: self.databaseURL)
+            let liveness = self.processDiscovery.snapshot()
+            return try self.readThreads(from: self.databaseURL, liveness: liveness)
         }.value
     }
 
-    private func readThreads(from databaseURL: URL) throws -> [CursorAgent] {
+    private func readThreads(
+        from databaseURL: URL,
+        liveness: CodexProcessDiscovery.Snapshot
+    ) throws -> [CursorAgent] {
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
             return []
         }
@@ -24,6 +29,7 @@ struct CodexAPI {
                 COALESCE(NULLIF(agent_nickname, ''), NULLIF(model, ''), NULLIF(model_provider, ''), 'Codex') AS detail,
                 COALESCE(NULLIF(cwd, ''), '') AS cwd,
                 COALESCE(NULLIF(git_branch, ''), '') AS git_branch,
+                COALESCE(source, '') AS source,
                 rollout_path,
                 COALESCE(NULLIF(recency_at_ms, 0), NULLIF(updated_at_ms, 0), updated_at * 1000) AS updated_at_ms
             FROM threads
@@ -52,8 +58,18 @@ struct CodexAPI {
         let threads = try JSONDecoder().decode([LocalThread].self, from: data)
         return threads.map { thread in
             let updatedAt = Date(timeIntervalSince1970: thread.updatedAtMilliseconds / 1_000)
-            let isActive = now.timeIntervalSince(updatedAt) < 120
-            let status = Self.status(for: thread, isActive: isActive)
+            let isRecentlyActive = now.timeIntervalSince(updatedAt) < 120
+            let isProcessLive = liveness.contains(
+                threadID: thread.id,
+                rolloutPath: thread.rolloutPath
+            )
+            let status = Self.status(
+                for: thread,
+                isProcessLive: isProcessLive,
+                canDetermineProcessAbsence: liveness.canDetermineAbsence
+                    && thread.isTerminalSource,
+                isRecentlyActive: isRecentlyActive
+            )
             return CursorAgent(
                 id: "codex-\(thread.id)",
                 source: .codex,
@@ -89,7 +105,12 @@ struct CodexAPI {
         return trimmed
     }
 
-    private static func status(for thread: LocalThread, isActive: Bool) -> AgentStatus {
+    private static func status(
+        for thread: LocalThread,
+        isProcessLive: Bool,
+        canDetermineProcessAbsence: Bool,
+        isRecentlyActive: Bool
+    ) -> AgentStatus {
         let tail = rolloutTail(at: thread.rolloutPath)
         let lastTaskStarted = latestIndex(of: "\"type\":\"task_started\"", in: tail) ?? -1
         let lastTaskComplete = latestIndex(of: "\"type\":\"task_complete\"", in: tail) ?? -1
@@ -128,22 +149,45 @@ struct CodexAPI {
         let lastExecCall = latestIndex(of: "\"name\":\"exec\"", in: tail) ?? -1
         let lastExecOutput = latestIndex(of: "\"type\":\"function_call_output\"", in: tail) ?? -1
 
+        let semanticStatus: AgentStatus?
         if lastApproval > checkpoint {
-            return .waitingForApproval
+            semanticStatus = .waitingForApproval
+        } else if lastUserInput > checkpoint {
+            semanticStatus = .waitingForInput
+        } else if lastBlocked > checkpoint {
+            semanticStatus = .blocked
+        } else if lastExecCall > max(checkpoint, lastExecOutput) {
+            semanticStatus = .waitingForApproval
+        } else if lastTaskComplete > lastTaskStarted {
+            semanticStatus = .completed
+        } else {
+            semanticStatus = nil
         }
-        if lastUserInput > checkpoint {
-            return .waitingForInput
+
+        // When process discovery positively maps this thread, transcript
+        // semantics describe what the live task needs from the user.
+        if isProcessLive {
+            return semanticStatus ?? .running
         }
-        if lastBlocked > checkpoint {
-            return .blocked
-        }
-        if lastExecCall > max(checkpoint, lastExecOutput) {
-            return .waitingForApproval
-        }
-        if lastTaskComplete > lastTaskStarted {
+
+        // A durable completion marker remains valid after the process exits.
+        if semanticStatus == .completed {
             return .completed
         }
-        return isActive ? .running : .unknown
+
+        // If every terminal-attached Codex process was accounted for, absence
+        // is stronger evidence than a recently updated database timestamp.
+        if canDetermineProcessAbsence {
+            return .unknown
+        }
+
+        // ps/lsof can be unavailable or unable to map a process. Preserve the
+        // previous recency heuristic rather than producing a false stopped
+        // state. Persisted attention markers are also retained in this mode.
+        if let semanticStatus {
+            return semanticStatus
+        }
+        return isRecentlyActive ? .running : .unknown
     }
 
     private static func statusText(for thread: LocalThread, status: AgentStatus, updatedAt: Date) -> String {
@@ -198,11 +242,17 @@ struct CodexAPI {
         let detail: String
         let cwd: String
         let gitBranch: String
+        let source: String
         let rolloutPath: String
         let updatedAtMilliseconds: Double
 
+        var isTerminalSource: Bool {
+            let normalized = source.lowercased()
+            return normalized.contains("cli") || normalized.contains("terminal")
+        }
+
         enum CodingKeys: String, CodingKey {
-            case id, title, preview, detail, cwd
+            case id, title, preview, detail, cwd, source
             case gitBranch = "git_branch"
             case rolloutPath = "rollout_path"
             case updatedAtMilliseconds = "updated_at_ms"
