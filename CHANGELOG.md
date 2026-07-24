@@ -42,7 +42,10 @@ LoopBar is a native macOS notch-island monitor for local Cursor and Codex work. 
 - Joins lightweight headers with `cursorDiskKV` composer data.
 - Ignores archived, draft, and subagent composers.
 - Detects active generation, continuation, worktree application/creation/undo, queues, plans, unread messages, blocked actions, and completion subtitles.
-- Uses a short active window to avoid claiming old activity is still running.
+- Uses macOS filesystem events to refresh as soon as Cursor state changes.
+- Caches transcript paths and reads only newly appended turn events.
+- Uses a 15-second fallback window and a Cursor-open process guard.
+- Does not rely on Cursor hooks.
 
 ## Codex monitoring
 

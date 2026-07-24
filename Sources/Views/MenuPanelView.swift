@@ -34,6 +34,13 @@ struct MenuPanelView: View {
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.45))
 
+            Text("v\(AppVersion.current)")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.42))
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
+                .help("LoopBar version \(AppVersion.current)")
+
             Spacer()
 
             IslandIconButton(symbol: "arrow.clockwise") {

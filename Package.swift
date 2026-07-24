@@ -8,6 +8,8 @@ let package = Package(
     targets: [.executableTarget(
         name: "LoopBar",
         path: "Sources",
-        resources: [.process("Resources")]
+        resources: [
+            .copy("Resources/version.txt")
+        ]
     )]
 )
