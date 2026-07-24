@@ -142,4 +142,20 @@ LoopBar reads local Cursor and Codex metadata only. It does not send prompts, ed
 
 ## Build a distributable app
 
-For signing, sandboxing, an application icon, and reliable UserNotifications behavior, move `Sources/` into an Xcode macOS App target. The package has no third-party dependencies.
+For signing, sandboxing, and reliable UserNotifications behavior, move `Sources/` into an Xcode macOS App target. The package has no third-party dependencies.
+
+### App icon
+
+The mascot icon master is [`Assets/LoopBar-AppIcon-v7.png`](Assets/LoopBar-AppIcon-v7.png); the macOS bundle asset is [`Assets/AppIcon.icns`](Assets/AppIcon.icns). Regenerate the `.icns` asset after changing the master PNG:
+
+```sh
+python3 scripts/create_app_icon.py Assets/LoopBar-AppIcon-v7.png Assets/AppIcon.icns
+```
+
+As part of packaging, install the icon before signing the `.app` bundle:
+
+```sh
+python3 scripts/install_app_icon.py path/to/LoopBar.app
+```
+
+The installer adds `AppIcon.icns` to `Contents/Resources` and sets `CFBundleIconFile` to `AppIcon`. Re-sign the app after this step.
