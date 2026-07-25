@@ -103,6 +103,7 @@ struct CompactIslandView: View {
         let runningSources = Set(store.agents.filter { $0.status == .running }.map(\.source))
         if runningSources.contains(.codex) { return .blue }
         if runningSources.contains(.cursor) { return .purple }
+        if runningSources.contains(.claude) { return .orange }
         return .blue
     }
 

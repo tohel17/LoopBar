@@ -13,6 +13,8 @@ enum AgentOpener {
             open(url, bundleIdentifier: "com.todesktop.230313mzl4w4u92", fallbackPath: "/Applications/Cursor.app")
         case .codex:
             open(url, bundleIdentifier: "com.openai.codex", fallbackPath: "/Applications/ChatGPT.app")
+        case .claude:
+            NSWorkspace.shared.open(url)
         case nil:
             NSWorkspace.shared.open(url)
         }

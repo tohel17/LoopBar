@@ -50,6 +50,7 @@ enum AgentStatus: String, Codable, CaseIterable, Sendable {
 enum AgentSource: String, Codable, Sendable {
     case cursor = "Cursor"
     case codex = "Codex"
+    case claude = "Claude"
 }
 
 struct CursorAgent: Identifiable, Equatable, Sendable {
