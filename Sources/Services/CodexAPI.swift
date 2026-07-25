@@ -122,7 +122,7 @@ struct CodexAPI {
         if canDetermineProcessAbsence {
             return .unknown
         }
-        if semanticStatus != .unknown {
+        if semanticStatus.needsAttention {
             return semanticStatus
         }
         return isRecentlyActive ? .running : .unknown

@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 0.8 seconds
-Output:
 import Foundation
 
 /// Discovers terminal-attached Codex CLI processes and maps them to rollout

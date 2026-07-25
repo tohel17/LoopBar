@@ -9,7 +9,9 @@ let package = Package(
         .executableTarget(
             name: "LoopBar",
             path: "Sources",
-            resources: [.process("Resources")]
+            resources: [
+                .copy("Resources/version.txt")
+            ]
         ),
         .testTarget(name: "LoopBarTests", dependencies: ["LoopBar"])
     ]
