@@ -59,13 +59,12 @@ struct CodexAPI {
         return threads.map { thread in
             let updatedAt = Date(timeIntervalSince1970: thread.updatedAtMilliseconds / 1_000)
             let isRecentlyActive = now.timeIntervalSince(updatedAt) < 120
-            let isProcessLive = liveness.contains(
-                threadID: thread.id,
-                rolloutPath: thread.rolloutPath
-            )
             let status = Self.status(
                 for: thread,
-                isProcessLive: isProcessLive,
+                isProcessLive: liveness.contains(
+                    threadID: thread.id,
+                    rolloutPath: thread.rolloutPath
+                ),
                 canDetermineProcessAbsence: liveness.canDetermineAbsence
                     && thread.isTerminalSource,
                 isRecentlyActive: isRecentlyActive
@@ -112,6 +111,27 @@ struct CodexAPI {
         isRecentlyActive: Bool
     ) -> AgentStatus {
         let tail = rolloutTail(at: thread.rolloutPath)
+        let semanticStatus = status(fromRollout: tail, isRecentlyUpdated: false)
+
+        if isProcessLive {
+            return semanticStatus == .unknown ? .running : semanticStatus
+        }
+        if semanticStatus == .completed {
+            return .completed
+        }
+        if canDetermineProcessAbsence {
+            return .unknown
+        }
+        if semanticStatus.needsAttention {
+            return semanticStatus
+        }
+        return isRecentlyActive ? .running : .unknown
+    }
+
+    /// Derives task state from explicit rollout lifecycle records. Database
+    /// recency is only a legacy fallback: hybrid Codex updates thread metadata
+    /// for background activity that does not mean an agent is running.
+    static func status(fromRollout tail: String, isRecentlyUpdated: Bool) -> AgentStatus {
         let lastTaskStarted = latestIndex(of: "\"type\":\"task_started\"", in: tail) ?? -1
         let lastTaskComplete = latestIndex(of: "\"type\":\"task_complete\"", in: tail) ?? -1
         // Approval records can remain in the rollout after the agent resumes.
@@ -143,51 +163,22 @@ struct CodexAPI {
             "\"status\":\"blocked\"",
             "\"type\":\"goal_updated\",\"status\":\"blocked\""
         ].compactMap { latestIndex(of: $0, in: tail) }.max() ?? -1
-        // Task-level approval is persisted as a shell function call before
-        // its result exists. The approval event itself has no stable type
-        // name, so an outstanding exec call is the reliable signal.
-        let lastExecCall = latestIndex(of: "\"name\":\"exec\"", in: tail) ?? -1
-        let lastExecOutput = latestIndex(of: "\"type\":\"function_call_output\"", in: tail) ?? -1
-
-        let semanticStatus: AgentStatus?
         if lastApproval > checkpoint {
-            semanticStatus = .waitingForApproval
-        } else if lastUserInput > checkpoint {
-            semanticStatus = .waitingForInput
-        } else if lastBlocked > checkpoint {
-            semanticStatus = .blocked
-        } else if lastExecCall > max(checkpoint, lastExecOutput) {
-            semanticStatus = .waitingForApproval
-        } else if lastTaskComplete > lastTaskStarted {
-            semanticStatus = .completed
-        } else {
-            semanticStatus = nil
+            return .waitingForApproval
         }
-
-        // When process discovery positively maps this thread, transcript
-        // semantics describe what the live task needs from the user.
-        if isProcessLive {
-            return semanticStatus ?? .running
+        if lastUserInput > checkpoint {
+            return .waitingForInput
         }
-
-        // A durable completion marker remains valid after the process exits.
-        if semanticStatus == .completed {
+        if lastBlocked > checkpoint {
+            return .blocked
+        }
+        if lastTaskComplete > lastTaskStarted {
             return .completed
         }
-
-        // If every terminal-attached Codex process was accounted for, absence
-        // is stronger evidence than a recently updated database timestamp.
-        if canDetermineProcessAbsence {
-            return .unknown
+        if lastTaskStarted >= 0 {
+            return .running
         }
-
-        // ps/lsof can be unavailable or unable to map a process. Preserve the
-        // previous recency heuristic rather than producing a false stopped
-        // state. Persisted attention markers are also retained in this mode.
-        if let semanticStatus {
-            return semanticStatus
-        }
-        return isRecentlyActive ? .running : .unknown
+        return isRecentlyUpdated ? .running : .unknown
     }
 
     private static func statusText(for thread: LocalThread, status: AgentStatus, updatedAt: Date) -> String {
@@ -220,7 +211,9 @@ struct CodexAPI {
             let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
             defer { try? handle.close() }
             let fileSize = try handle.seekToEnd()
-            let tailSize: UInt64 = 96 * 1_024
+            // Long hybrid turns can exceed the old 96 KiB window before the
+            // next poll. Retain enough history to keep the task_started marker.
+            let tailSize: UInt64 = 1_024 * 1_024
             try handle.seek(toOffset: fileSize > tailSize ? fileSize - tailSize : 0)
             return String(data: handle.readDataToEndOfFile(), encoding: .utf8) ?? ""
         } catch {

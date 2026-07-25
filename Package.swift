@@ -5,11 +5,14 @@ let package = Package(
     name: "LoopBar",
     platforms: [.macOS(.v14)],
     products: [.executable(name: "LoopBar", targets: ["LoopBar"])],
-    targets: [.executableTarget(
-        name: "LoopBar",
-        path: "Sources",
-        resources: [
-            .copy("Resources/version.txt")
-        ]
-    )]
+    targets: [
+        .executableTarget(
+            name: "LoopBar",
+            path: "Sources",
+            resources: [
+                .copy("Resources/version.txt")
+            ]
+        ),
+        .testTarget(name: "LoopBarTests", dependencies: ["LoopBar"])
+    ]
 )
