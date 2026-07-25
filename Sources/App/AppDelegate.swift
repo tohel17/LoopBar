@@ -7,6 +7,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) lazy var viewModel = IslandViewModel(store: store)
     private var islandController: IslandPanelController?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
+
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        guard let existingInstance = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleIdentifier)
+            .first(where: { $0.processIdentifier != currentPID }) else {
+            return
+        }
+
+        existingInstance.activate(options: [.activateAllWindows])
+        NSApp.terminate(nil)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         CursorHookInstaller.install()
         if NotificationService.canUseUserNotifications {
