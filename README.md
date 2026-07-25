@@ -14,6 +14,12 @@ swift run LoopBar
 
 Click the island to expand it. Click an agent row to open its source application. The gear button opens settings; the refresh button performs an immediate refresh; the power button quits LoopBar.
 
+The app version has one source of truth: `Sources/Resources/version.txt`. After changing it, rebuild LoopBar. Before packaging the `.app`, synchronize its Info.plist:
+
+```sh
+./scripts/sync-version.sh
+```
+
 ## What the island shows
 
 The panel is always centered over the active screen's notch area. Its background is fully black and opaque, with a custom shoulder shape at the top and rounded bottom corners. Compact and expanded modes share the same top header, so the island remains visually attached to the notch while its body changes below it.
@@ -65,7 +71,7 @@ Expanded row colors are:
 | Failed | Red | Red |
 | Cancelled/unknown | Gray | Gray |
 
-The expanded footer shows the last refresh time and provides refresh, settings, and quit controls. Settings and the placeholder logs content are selected through the expanded content state.
+The expanded footer and Settings show the packaged app version from `CFBundleShortVersionString`. Direct SwiftPM development launches read the same value from the bundled `version.txt` resource because they do not have an app Info.plist. The footer also provides refresh, settings, and quit controls. Settings and the placeholder logs content are selected through the expanded content state.
 
 ## Status model
 
@@ -73,18 +79,24 @@ The expanded footer shows the last refresh time and provides refresh, settings, 
 
 `needsAttention` is true only for approval, input, blocked, and failed states. A queued or merely old/unknown task is not counted in the compact right-side attention total.
 
-Cursor status is inferred from live composer header fields, in this order:
+Cursor Desktop status is inferred without hooks, in this order:
 
 1. Explicit blocked state
 2. Pending plan or blocking pending action → approval
 3. Unread messages → waiting for input
 4. Active generation, continuation, worktree application/creation/undo → running
 5. Queue items → queued
-6. Other explicit status values
-7. Completion subtitle (`Edited …`) → completed
-8. Recent activity within the 20-second active window → running; otherwise unknown
+6. Incrementally parsed transcript turn state → running, completed, or failed
+7. An `aborted` follow-up with an advanced timestamp stays running until Cursor writes its terminal status
+8. Other explicit status values
+9. Completion subtitle (`Edited …`) → completed
+10. Recent activity within the 15-second fallback window → running; otherwise unknown
 
-Codex status is inferred from the tail of each rollout JSONL file. Task completion, approval, input, blocked markers, tool calls, and newer activity are compared by their position in the rollout. If a stale approval or input marker is followed by newer reasoning, messages, tool calls, or tool output, the newer activity wins and the task is shown as running. This prevents old events from leaving an active Codex task stuck in a waiting state. Codex considers a thread active when its database update is within the 120-second active window.
+macOS filesystem events watch Cursor's local database and project transcript directories. Writes are debounced briefly and trigger an immediate refresh, while the configured polling interval remains as a recovery pass. Transcript paths and read offsets are cached, so subsequent refreshes read only newly appended JSONL data. The Cursor process table is used only to prevent a closed desktop application from leaving a composer marked as running; shared Electron processes are never attributed to individual composers.
+
+Codex uses a hybrid liveness model. `ps` finds terminal-attached Codex CLI processes and one batched `lsof` maps them to open rollout JSONL files. Process presence determines whether a mapped task is alive, while the rollout tail determines whether that live task is running, waiting for approval/input, or blocked. For threads identified as CLI/terminal-originated, a complete process snapshot can also establish that a task has stopped. Durable task-completion markers remain valid after the process exits.
+
+If process discovery is unavailable, cannot map every Codex process, or the thread comes from a non-terminal Codex surface, LoopBar safely falls back to its previous persisted-state model. Task completion, approval, input, blocked markers, tool calls, and newer activity are compared by their position in the rollout, with a 120-second database-recency window as the final fallback. This avoids declaring desktop/background tasks stopped merely because no terminal process exists.
 
 Because neither local application exposes a complete durable run-state contract for every task, LoopBar preserves an `unknown` state when the available evidence is insufficient instead of guessing completion.
 
@@ -103,9 +115,15 @@ The proposed Claude Code source architecture is documented in
 - `Sources/Models/Agent.swift` — agent value model, sources, statuses, labels, icons, terminal state, and attention state.
 - `Sources/Models/IslandState.swift` — compact, expanded, loading, and notification chrome states.
 - `Sources/Models/IslandContent.swift` — agents, settings, and logs body selection.
-- `Sources/Services/AgentStore.swift` — main-actor observable store, source polling, sorting, transient error handling, and status-transition notification triggers.
+- `Sources/Services/AgentStore.swift` — main-actor observable store, event-triggered and periodic refreshes, sorting, transient error handling, and status-transition notification triggers.
 - `Sources/Services/CursorAPI.swift` — read-only SQLite access to Cursor's `composerHeaders` and related `cursorDiskKV` records.
+- `Sources/Services/CursorFileWatcher.swift` — debounced macOS filesystem events for Cursor's state and transcript directories.
+- `Sources/Services/CursorTranscriptMonitor.swift` — cached transcript discovery and incremental turn-state parsing.
+- `Sources/Services/CursorActivityTracker.swift` — cross-refresh inference for Cursor's `aborted`-while-running follow-up lifecycle.
+- `Sources/Services/CursorDesktopProcessDiscovery.swift` — application-level Cursor Desktop process guard.
+- `Sources/Services/CursorHookCleanup.swift` — one-time removal of LoopBar's legacy hook without changing unrelated user hook commands.
 - `Sources/Services/CodexAPI.swift` — read-only SQLite access to Codex's local `threads` table and rollout JSONL tails.
+- `Sources/Services/CodexProcessDiscovery.swift` — read-only `ps`/`lsof` discovery that maps terminal-attached Codex processes to live rollout files.
 - `Sources/Services/AgentOpener.swift` — opens Cursor or Codex when a row or notification is clicked.
 - `Sources/Services/NotificationService.swift` — posts status-transition notifications with sound in packaged `.app` builds and uses an `osascript` notification fallback for raw SwiftPM/debug runs.
 - `Sources/Services/Settings.swift` — persists refresh interval and Cursor/Codex source toggles in `UserDefaults`.
@@ -120,17 +138,17 @@ The proposed Claude Code source architecture is documented in
 
 The runtime flow is:
 
-1. `AgentStore` starts a polling task and requests notification authorization.
-2. On each refresh it reads each enabled source through its local read-only adapter.
+1. `AgentStore` starts Cursor file monitoring, a periodic recovery poll, and notification authorization.
+2. Cursor filesystem changes trigger a debounced refresh; the recovery poll refreshes every enabled source.
 3. Cursor and Codex records are normalized into `CursorAgent` values.
 4. The store sorts the combined snapshot, compares statuses with the previous snapshot, and emits notifications for completed or newly actionable states.
 5. SwiftUI observes the store and view model. Expanded content and panel height update when data, errors, or selected content change.
 
 ## Refresh and source settings
 
-The refresh interval defaults to one second and is clamped between one and 60 seconds. Cursor and Codex monitoring can be enabled independently. A temporary Codex SQLite read failure keeps the previous Codex snapshot instead of replacing it with a noisy empty/error state.
+The refresh interval defaults to one second and is clamped between one and 60 seconds. Cursor file events can refresh sooner than this interval; the timer is a recovery mechanism and continues to drive Codex monitoring. Cursor and Codex monitoring can be enabled independently. A temporary SQLite read failure keeps the previous snapshot for that source instead of replacing it with a noisy empty/error state.
 
-Each source is queried only when its setting is enabled. Cursor reads `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; Codex reads `~/.codex/state_5.sqlite`. No API key, network connection, or external service is required.
+Each source is queried only when its setting is enabled. Cursor reads `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; Codex reads `~/.codex/state_5.sqlite`, rollout JSONL files, and the local process table. No API key, network connection, or external service is required.
 
 ## Notifications and opening tasks
 
@@ -138,7 +156,7 @@ Notifications are emitted only after the initial snapshot, and only when an agen
 
 ## Privacy
 
-LoopBar reads local Cursor and Codex metadata only. It does not send prompts, edit files through either agent, modify their databases, or make network requests.
+LoopBar reads local Cursor and Codex metadata only. It does not send prompts, edit files through either agent, modify their databases, or make network requests. On first launch after this version, it removes only LoopBar's legacy Cursor hook command, script, and event log while preserving unrelated hook commands.
 
 ## Build a distributable app
 

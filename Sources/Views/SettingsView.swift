@@ -55,6 +55,11 @@ struct SettingsView: View {
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.52))
                 }
+                Spacer()
+                Text("v\(AppVersion.current)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.52))
+                    .fixedSize()
             }
 
             VStack(alignment: .leading, spacing: 7) {
@@ -94,6 +99,7 @@ struct SettingsView: View {
             Text("Monitoring your three most recently updated Cursor composers and Codex tasks.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            LabeledContent("Version", value: AppVersion.current)
         }
         Section("Refresh") {
             Picker("Refresh interval", selection: $store.settings.refreshSeconds) {

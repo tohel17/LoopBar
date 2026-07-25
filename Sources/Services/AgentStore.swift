@@ -1,6 +1,6 @@
 import Foundation
 
-/// Observable store for Cursor agent data and polling lifecycle.
+/// Observable store for event-triggered and periodically reconciled agent data.
 ///
 /// Deliberately free of island chrome / expand state — that lives in `IslandViewModel`.
 @MainActor
@@ -13,8 +13,11 @@ final class AgentStore: ObservableObject {
     private let cursorAPI = CursorAPI()
     private let codexAPI = CodexAPI()
     private let claudeAPI = ClaudeAPI()
+    private let cursorFileWatcher = CursorFileWatcher()
     private let notificationService = NotificationService()
     private var pollingTask: Task<Void, Never>?
+    private var isRefreshing = false
+    private var refreshPending = false
     private var hasLoadedInitialSnapshot = false
     private var lastStatuses: [String: AgentStatus] = [:]
     private var lastPublishedAgents: [String: CursorAgent] = [:]
@@ -22,11 +25,18 @@ final class AgentStore: ObservableObject {
 
     init() {
         notificationService.requestAuthorization()
+        cursorFileWatcher.start { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.settings.cursorEnabled else { return }
+                await self.refresh()
+            }
+        }
         restartPolling()
     }
 
     deinit {
         pollingTask?.cancel()
+        cursorFileWatcher.stop()
     }
 
     func restartPolling() {
@@ -41,6 +51,20 @@ final class AgentStore: ObservableObject {
     }
 
     func refresh() async {
+        if isRefreshing {
+            refreshPending = true
+            return
+        }
+
+        isRefreshing = true
+        repeat {
+            refreshPending = false
+            await performRefresh()
+        } while refreshPending
+        isRefreshing = false
+    }
+
+    private func performRefresh() async {
         var incoming: [CursorAgent] = []
         var errors: [String] = []
 
@@ -49,6 +73,10 @@ final class AgentStore: ObservableObject {
                 incoming.append(contentsOf: try await cursorAPI.fetchAgents())
             } catch {
                 errors.append("Cursor: \(error.localizedDescription)")
+                // File events can arrive while Cursor is between SQLite WAL
+                // writes. Keep the previous snapshot until the recovery pass
+                // can read a consistent database view.
+                incoming.append(contentsOf: agents.filter { $0.source == .cursor })
             }
         }
 
