@@ -4,14 +4,19 @@ import Foundation
 struct CodexAPI {
     private let databaseURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".codex/state_5.sqlite")
+    private let processDiscovery = CodexProcessDiscovery()
 
     func fetchAgents() async throws -> [CursorAgent] {
         try await Task.detached(priority: .userInitiated) {
-            try self.readThreads(from: self.databaseURL)
+            let liveness = self.processDiscovery.snapshot()
+            return try self.readThreads(from: self.databaseURL, liveness: liveness)
         }.value
     }
 
-    private func readThreads(from databaseURL: URL) throws -> [CursorAgent] {
+    private func readThreads(
+        from databaseURL: URL,
+        liveness: CodexProcessDiscovery.Snapshot
+    ) throws -> [CursorAgent] {
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
             return []
         }
@@ -24,6 +29,7 @@ struct CodexAPI {
                 COALESCE(NULLIF(agent_nickname, ''), NULLIF(model, ''), NULLIF(model_provider, ''), 'Codex') AS detail,
                 COALESCE(NULLIF(cwd, ''), '') AS cwd,
                 COALESCE(NULLIF(git_branch, ''), '') AS git_branch,
+                COALESCE(source, '') AS source,
                 rollout_path,
                 COALESCE(NULLIF(recency_at_ms, 0), NULLIF(updated_at_ms, 0), updated_at * 1000) AS updated_at_ms
             FROM threads
@@ -52,8 +58,17 @@ struct CodexAPI {
         let threads = try JSONDecoder().decode([LocalThread].self, from: data)
         return threads.map { thread in
             let updatedAt = Date(timeIntervalSince1970: thread.updatedAtMilliseconds / 1_000)
-            let isActive = now.timeIntervalSince(updatedAt) < 120
-            let status = Self.status(for: thread, isActive: isActive)
+            let isRecentlyActive = now.timeIntervalSince(updatedAt) < 120
+            let status = Self.status(
+                for: thread,
+                isProcessLive: liveness.contains(
+                    threadID: thread.id,
+                    rolloutPath: thread.rolloutPath
+                ),
+                canDetermineProcessAbsence: liveness.canDetermineAbsence
+                    && thread.isTerminalSource,
+                isRecentlyActive: isRecentlyActive
+            )
             return CursorAgent(
                 id: "codex-\(thread.id)",
                 source: .codex,
@@ -89,8 +104,34 @@ struct CodexAPI {
         return trimmed
     }
 
-    private static func status(for thread: LocalThread, isActive: Bool) -> AgentStatus {
+    private static func status(
+        for thread: LocalThread,
+        isProcessLive: Bool,
+        canDetermineProcessAbsence: Bool,
+        isRecentlyActive: Bool
+    ) -> AgentStatus {
         let tail = rolloutTail(at: thread.rolloutPath)
+        let semanticStatus = status(fromRollout: tail, isRecentlyUpdated: false)
+
+        if isProcessLive {
+            return semanticStatus == .unknown ? .running : semanticStatus
+        }
+        if semanticStatus == .completed {
+            return .completed
+        }
+        if canDetermineProcessAbsence {
+            return .unknown
+        }
+        if semanticStatus != .unknown {
+            return semanticStatus
+        }
+        return isRecentlyActive ? .running : .unknown
+    }
+
+    /// Derives task state from explicit rollout lifecycle records. Database
+    /// recency is only a legacy fallback: hybrid Codex updates thread metadata
+    /// for background activity that does not mean an agent is running.
+    static func status(fromRollout tail: String, isRecentlyUpdated: Bool) -> AgentStatus {
         let lastTaskStarted = latestIndex(of: "\"type\":\"task_started\"", in: tail) ?? -1
         let lastTaskComplete = latestIndex(of: "\"type\":\"task_complete\"", in: tail) ?? -1
         // Approval records can remain in the rollout after the agent resumes.
@@ -122,12 +163,6 @@ struct CodexAPI {
             "\"status\":\"blocked\"",
             "\"type\":\"goal_updated\",\"status\":\"blocked\""
         ].compactMap { latestIndex(of: $0, in: tail) }.max() ?? -1
-        // Task-level approval is persisted as a shell function call before
-        // its result exists. The approval event itself has no stable type
-        // name, so an outstanding exec call is the reliable signal.
-        let lastExecCall = latestIndex(of: "\"name\":\"exec\"", in: tail) ?? -1
-        let lastExecOutput = latestIndex(of: "\"type\":\"function_call_output\"", in: tail) ?? -1
-
         if lastApproval > checkpoint {
             return .waitingForApproval
         }
@@ -137,13 +172,13 @@ struct CodexAPI {
         if lastBlocked > checkpoint {
             return .blocked
         }
-        if lastExecCall > max(checkpoint, lastExecOutput) {
-            return .waitingForApproval
-        }
         if lastTaskComplete > lastTaskStarted {
             return .completed
         }
-        return isActive ? .running : .unknown
+        if lastTaskStarted >= 0 {
+            return .running
+        }
+        return isRecentlyUpdated ? .running : .unknown
     }
 
     private static func statusText(for thread: LocalThread, status: AgentStatus, updatedAt: Date) -> String {
@@ -176,7 +211,9 @@ struct CodexAPI {
             let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
             defer { try? handle.close() }
             let fileSize = try handle.seekToEnd()
-            let tailSize: UInt64 = 96 * 1_024
+            // Long hybrid turns can exceed the old 96 KiB window before the
+            // next poll. Retain enough history to keep the task_started marker.
+            let tailSize: UInt64 = 1_024 * 1_024
             try handle.seek(toOffset: fileSize > tailSize ? fileSize - tailSize : 0)
             return String(data: handle.readDataToEndOfFile(), encoding: .utf8) ?? ""
         } catch {
@@ -198,11 +235,17 @@ struct CodexAPI {
         let detail: String
         let cwd: String
         let gitBranch: String
+        let source: String
         let rolloutPath: String
         let updatedAtMilliseconds: Double
 
+        var isTerminalSource: Bool {
+            let normalized = source.lowercased()
+            return normalized.contains("cli") || normalized.contains("terminal")
+        }
+
         enum CodingKeys: String, CodingKey {
-            case id, title, preview, detail, cwd
+            case id, title, preview, detail, cwd, source
             case gitBranch = "git_branch"
             case rolloutPath = "rollout_path"
             case updatedAtMilliseconds = "updated_at_ms"
