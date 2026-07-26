@@ -91,13 +91,13 @@ final class ClaudeAPI {
             options: [.skipsHiddenFiles]
         ) else { return [] }
 
-        return projects.flatMap { project in
+        return projects.flatMap { project -> [Session] in
             guard let files = try? FileManager.default.contentsOfDirectory(
                 at: project,
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
             ) else { return [] }
-            return files.compactMap { file in
+            return files.compactMap { file -> Session? in
                 guard file.pathExtension == "jsonl",
                       let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
                       now.timeIntervalSince(modified) < Self.recentWindow else { return nil }
@@ -170,9 +170,10 @@ final class ClaudeAPI {
         let size = (try? handle.seekToEnd()) ?? 0
         let readLength = min(size, 128 * 1_024)
         try? handle.seek(toOffset: size - readLength)
-        guard let data = try? handle.readToEnd(), let text = String(data: data, encoding: .utf8) else { return .empty }
+        guard let data = try? handle.readToEnd(),
+              let transcriptText = String(data: data, encoding: .utf8) else { return .empty }
         var metadata = TranscriptMetadata.empty
-        for line in text.split(separator: "\n").reversed() {
+        for line in transcriptText.split(separator: "\n").reversed() {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
             if metadata.model.isEmpty { metadata.model = string(in: object, key: "model") ?? "" }
             let type = object["type"] as? String
