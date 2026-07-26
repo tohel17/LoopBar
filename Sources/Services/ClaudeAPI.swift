@@ -6,7 +6,7 @@ import Foundation
 /// Claude usually closes its transcript after appending to it, so file
 /// timestamps alone cannot establish liveness. This service combines recent
 /// JSONL metadata with terminal-attached `claude` processes and their CWDs.
-final class ClaudeAPI {
+final class ClaudeAPI: @unchecked Sendable {
     private static let busyWindow: TimeInterval = 30
     private static let recentWindow: TimeInterval = 6 * 60 * 60
     private let projectsURL = FileManager.default.homeDirectoryForCurrentUser
@@ -16,7 +16,9 @@ final class ClaudeAPI {
     private var claimedSessionByTTY: [String: String] = [:]
 
     func fetchAgents() async throws -> [CursorAgent] {
-        try readSessions(now: .now)
+        try await Task.detached(priority: .userInitiated) {
+            try self.readSessions(now: .now)
+        }.value
     }
 
     private func readSessions(now: Date) throws -> [CursorAgent] {
@@ -229,11 +231,14 @@ final class ClaudeAPI {
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = FileHandle.nullDevice
         try process.run()
+        // Drain stdout before waiting. Otherwise a verbose `ps`/`lsof` result
+        // can fill the pipe buffer and leave the initial refresh stuck forever.
+        let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { throw ClaudeError.processUnavailable }
-        return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return String(data: data, encoding: .utf8) ?? ""
     }
 }
 
