@@ -142,7 +142,12 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
         // any later complete JSONL record is therefore live activity. A
         // turn_ended record in the same batch immediately replaces this
         // provisional running state below.
+        // Only infer running from new content when the state is not already
+        // terminal. Post-completion writes (metadata, summaries) should not
+        // flip .completed/.failed back to .running; only an explicit
+        // turn_started record (handled in apply()) may do that.
         if entry.modifiedAt != nil,
+           entry.state != .completed, entry.state != .failed,
            lines.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
             entry.state = .running
         }

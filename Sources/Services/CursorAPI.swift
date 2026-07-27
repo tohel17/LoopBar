@@ -196,6 +196,18 @@ final class CursorAPI: @unchecked Sendable {
         if composer.hasBlockingPendingActions {
             return .waitingForApproval
         }
+        // Honour definitive terminal evidence before heuristic running
+        // signals. The database status and transcript turn records are
+        // authoritative; inferred-follow-up and recency heuristics can
+        // lag and keep a finished composer stuck as "Running".
+        if explicitStatus.isTerminal {
+            return explicitStatus
+        }
+        switch transcriptState {
+        case .completed: return .completed
+        case .failed: return .failed
+        default: break
+        }
         if inferredFollowUpRunning {
             return .running
         }
@@ -206,17 +218,10 @@ final class CursorAPI: @unchecked Sendable {
             return .queued
         }
 
-        switch transcriptState {
-        case .running:
-            if isRecentlyActive {
-                return .running
-            }
-        case .completed:
-            return .completed
-        case .failed:
-            return .failed
-        case .none:
-            break
+        // Transcript terminal states are already handled above; only
+        // the running inference remains relevant here.
+        if transcriptState == .running, isRecentlyActive {
+            return .running
         }
 
         if explicitStatus != .unknown {
