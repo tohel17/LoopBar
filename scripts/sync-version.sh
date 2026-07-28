@@ -18,8 +18,13 @@ if [ ! -f "$info_plist" ]; then
     exit 1
 fi
 
+# Read current bundle version and increment it
+bundle_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$info_plist")
+bundle_version=$((bundle_version + 1))
+
 /usr/libexec/PlistBuddy \
     -c "Set :CFBundleShortVersionString $version" \
+    -c "Set :CFBundleVersion $bundle_version" \
     "$info_plist"
 
-echo "Set packaged LoopBar version to $version"
+echo "Set packaged LoopBar version to $version (bundle version: $bundle_version)"
