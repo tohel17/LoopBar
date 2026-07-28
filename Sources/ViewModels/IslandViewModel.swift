@@ -9,12 +9,13 @@ import Foundation
 final class IslandViewModel: ObservableObject {
     @Published private(set) var state: IslandState = .compact
     @Published var content: IslandContent = .agents
-    /// Reserved for future hover affordances; unused by views in this pass.
-    @Published var isHovered = false
+    @Published private(set) var isHovered = false
     @Published private(set) var notificationMessage: String?
 
     private let store: AgentStore
     private var cancellables = Set<AnyCancellable>()
+    private var collapseTask: Task<Void, Never>?
+    private static let collapseDelaySeconds: TimeInterval = 2
 
     /// True when the panel should use expanded metrics and chrome.
     var isExpandedChrome: Bool { state.isExpandedChrome }
@@ -26,13 +27,25 @@ final class IslandViewModel: ObservableObject {
 
     // MARK: - User actions
 
-    /// Toggle between compact and expanded chrome.
-    func toggleExpanded() {
-        if state.isExpandedChrome {
-            applyState(.compact)
-            content = .agents
-        } else {
-            applyState(derivedExpandedState())
+    /// Expand while the pointer is over the island; collapse 2s after it leaves.
+    func setHovered(_ hovered: Bool) {
+        isHovered = hovered
+        if hovered {
+            collapseTask?.cancel()
+            collapseTask = nil
+            if !state.isExpandedChrome {
+                applyState(derivedExpandedState())
+            }
+            return
+        }
+
+        collapseTask?.cancel()
+        collapseTask = Task { @MainActor [weak self] in
+            let nanoseconds = UInt64(Self.collapseDelaySeconds * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard let self, !Task.isCancelled, !self.isHovered else { return }
+            self.applyState(.compact)
+            self.content = .agents
         }
     }
 
@@ -41,10 +54,6 @@ final class IslandViewModel: ObservableObject {
         if !state.isExpandedChrome {
             applyState(derivedExpandedState())
         }
-    }
-
-    func setHovered(_ hovered: Bool) {
-        isHovered = hovered
     }
 
     // MARK: - Store observation

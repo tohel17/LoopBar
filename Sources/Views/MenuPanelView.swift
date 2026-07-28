@@ -25,6 +25,10 @@ struct MenuPanelView: View {
                 .fill(Color(red: 0, green: 0, blue: 0))
         }
         .clipShape(IslandShape(expanded: expanded))
+        .contentShape(IslandShape(expanded: expanded))
+        .onHover { hovering in
+            viewModel.setHovered(hovering)
+        }
         .preferredColorScheme(.dark)
     }
 
