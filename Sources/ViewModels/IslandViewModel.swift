@@ -27,15 +27,31 @@ final class IslandViewModel: ObservableObject {
 
     // MARK: - User actions
 
-    /// Expand while the pointer is over the island; collapse 2s after it leaves.
+    /// Toggle between compact and expanded chrome.
+    func toggleExpanded() {
+        if state.isExpandedChrome {
+            collapseTask?.cancel()
+            collapseTask = nil
+            applyState(.compact)
+            content = .agents
+        } else {
+            applyState(derivedExpandedState())
+        }
+    }
+
+    /// Hover never expands. While expanded, cancel collapse on enter and
+    /// schedule a 2s collapse after the pointer leaves.
     func setHovered(_ hovered: Bool) {
         isHovered = hovered
+        guard state.isExpandedChrome else {
+            collapseTask?.cancel()
+            collapseTask = nil
+            return
+        }
+
         if hovered {
             collapseTask?.cancel()
             collapseTask = nil
-            if !state.isExpandedChrome {
-                applyState(derivedExpandedState())
-            }
             return
         }
 

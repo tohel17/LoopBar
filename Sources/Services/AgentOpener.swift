@@ -14,9 +14,12 @@ enum AgentOpener {
         case .codex:
             open(url, bundleIdentifier: "com.openai.codex", fallbackPath: "/Applications/ChatGPT.app")
         case .claude:
-            NSWorkspace.shared.open(url)
+            // Claude Code has no stable GUI deep link. Open the project in Cursor
+            // when available so we don't activate a random default editor (e.g.
+            // Antigravity) that merely has the folder open.
+            open(url, bundleIdentifier: "com.todesktop.230313mzl4w4u92", fallbackPath: "/Applications/Cursor.app")
         case nil:
-            NSWorkspace.shared.open(url)
+            open(url, bundleIdentifier: "com.todesktop.230313mzl4w4u92", fallbackPath: "/Applications/Cursor.app")
         }
     }
 

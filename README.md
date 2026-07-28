@@ -165,18 +165,19 @@ For signing, sandboxing, and reliable UserNotifications behavior, move `Sources/
 
 ### App icon
 
-The mascot icon master is [`Assets/LoopBar-AppIcon-v7.png`](Assets/LoopBar-AppIcon-v7.png). Packaging needs both a loose `.icns` (Finder/Dock) and a compiled asset catalog (`Assets.car` + `CFBundleIconName`) so Notification Center can show the logo. A loose `.icns` alone leaves a blank notification icon on modern macOS.
+The mascot icon master is [`Assets/LoopBar-AppIcon-v7.png`](Assets/LoopBar-AppIcon-v7.png). Packaging needs a loose `.icns` (Finder / older macOS) and a compiled `Assets.car` + `CFBundleIconName` for Notification Center.
 
-Regenerate icon assets after changing the master PNG:
+On **macOS 26 Tahoe**, the catalog must come from Icon Composer ([`Assets/AppIcon.icon`](Assets/AppIcon.icon)). A flat PNG `AppIcon.appiconset` alone shows a blank left notification icon.
 
 ```sh
 python3 scripts/create_app_icon.py Assets/LoopBar-AppIcon-v7.png Assets/AppIcon.icns
-```
-
-That writes `Assets/AppIcon.icns` and `Assets/Assets.xcassets/AppIcon.appiconset/`. Install into the `.app` bundle before signing (`actool` from Xcode is required for `Assets.car`):
-
-```sh
 python3 scripts/install_app_icon.py path/to/LoopBar.app
 ```
 
-The installer adds `AppIcon.icns` and `Assets.car` to `Contents/Resources`, sets `CFBundleIconFile` / `CFBundleIconName` to `AppIcon`, then you re-sign the app.
+`install_app_icon.py` prefers `Assets/AppIcon.icon`, falls back to the flat xcassets, then you re-sign. Do not attach `NotificationLogo.png` — attachments appear on the RIGHT.
+
+Verify the left icon after install:
+
+```sh
+open /Applications/LoopBar.app --args --test-notification
+```

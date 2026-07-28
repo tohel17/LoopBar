@@ -10,7 +10,8 @@ let package = Package(
             name: "LoopBar",
             path: "Sources",
             resources: [
-                .copy("Resources/version.txt")
+                .copy("Resources/version.txt"),
+                .copy("Resources/NotificationLogo.png")
             ]
         ),
         .testTarget(name: "LoopBarTests", dependencies: ["LoopBar"])

@@ -38,24 +38,17 @@ struct CodexAPI {
             LIMIT 3;
             """
 
-        let process = Process()
-        let output = Pipe()
-        let error = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = ["-readonly", "-cmd", ".timeout 1000", "-json", databaseURL.path, query]
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-        process.waitUntilExit()
-
-        let errorText = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else {
-            throw APIError.localCodexUnavailable(errorText.trimmingCharacters(in: .whitespacesAndNewlines))
+        let result = try SQLiteJSONQuery.run(
+            database: databaseURL,
+            query: query,
+            busyTimeoutMS: 1000
+        )
+        guard result.status == 0 else {
+            throw APIError.localCodexUnavailable(result.stderr)
         }
 
         let now = Date()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let threads = try JSONDecoder().decode([LocalThread].self, from: data)
+        let threads = try SQLiteJSONQuery.decodeRows([LocalThread].self, from: result.stdout)
         return threads.map { thread in
             let updatedAt = Date(timeIntervalSince1970: thread.updatedAtMilliseconds / 1_000)
             let isRecentlyActive = now.timeIntervalSince(updatedAt) < 120

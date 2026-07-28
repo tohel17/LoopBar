@@ -33,7 +33,10 @@ final class CursorAPI: @unchecked Sendable {
         projectsURL: URL
     ) throws -> [CursorAgent] {
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
-            throw APIError.localCursorUnavailable("Cursor's local state database was not found.")
+            // Match Codex: missing local data is an empty snapshot, not a hard
+            // error. Beta testers without Cursor should see "No recent agents"
+            // instead of a permanent failure banner.
+            return []
         }
 
         // Prefer lastUpdatedAt when present; otherwise fall back to recency/createdAt columns.
@@ -75,30 +78,17 @@ final class CursorAPI: @unchecked Sendable {
             ORDER BY COALESCE(h.lastUpdatedAt, h.recency, h.createdAt) DESC
             LIMIT 3;
             """
-        let process = Process()
-        let output = Pipe()
-        let error = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = [
-            "-readonly",
-            "-cmd", ".timeout 500",
-            "-json",
-            databaseURL.path,
-            query
-        ]
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-        process.waitUntilExit()
-
-        let errorText = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else {
-            throw APIError.localCursorUnavailable(errorText.trimmingCharacters(in: .whitespacesAndNewlines))
+        let result = try SQLiteJSONQuery.run(
+            database: databaseURL,
+            query: query,
+            busyTimeoutMS: 500
+        )
+        guard result.status == 0 else {
+            throw APIError.localCursorUnavailable(result.stderr)
         }
 
         let now = Date()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let composers = try JSONDecoder().decode([LocalComposer].self, from: data)
+        let composers = try SQLiteJSONQuery.decodeRows([LocalComposer].self, from: result.stdout)
         let bubbleActivity = readBubbleActivity(
             for: composers.map(\.id),
             from: databaseURL,
@@ -182,7 +172,8 @@ final class CursorAPI: @unchecked Sendable {
             return "key LIKE 'bubbleId:\(escaped):%'"
         }.joined(separator: " OR ")
 
-        // json_valid skips malformed rows that would abort json_extract.
+        // Cap rows so a long-running composer cannot dump hundreds of KB and
+        // stall the island refresh. Newest bubbles matter for live status.
         let query = """
             SELECT
                 key,
@@ -191,33 +182,27 @@ final class CursorAPI: @unchecked Sendable {
                 CASE WHEN json_valid(value)
                     THEN json_extract(value, '$.toolFormerData.status') END AS tool_status
             FROM cursorDiskKV
-            WHERE \(predicates);
+            WHERE \(predicates)
+            ORDER BY created_at DESC
+            LIMIT 300;
             """
 
-        let process = Process()
-        let output = Pipe()
-        let error = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = [
-            "-readonly",
-            "-cmd", ".timeout 500",
-            "-json",
-            databaseURL.path,
-            query
-        ]
-        process.standardOutput = output
-        process.standardError = error
+        let queryResult: SQLiteJSONQuery.Result
         do {
-            try process.run()
+            queryResult = try SQLiteJSONQuery.run(
+                database: databaseURL,
+                query: query,
+                busyTimeoutMS: 500
+            )
         } catch {
             return [:]
         }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return [:] }
+        guard queryResult.status == 0 else { return [:] }
 
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        guard !data.isEmpty,
-              let rows = try? JSONDecoder().decode([BubbleRow].self, from: data) else {
+        let rows: [BubbleRow]
+        do {
+            rows = try SQLiteJSONQuery.decodeRows([BubbleRow].self, from: queryResult.stdout)
+        } catch {
             return [:]
         }
 
@@ -472,7 +457,7 @@ final class CursorAPI: @unchecked Sendable {
             id = try container.decode(String.self, forKey: .id)
             title = try container.decode(String.self, forKey: .title)
             subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
-            updatedAt = try container.decode(Double.self, forKey: .updatedAt)
+            updatedAt = try Self.decodeSQLiteDouble(container, .updatedAt) ?? 0
             mode = try container.decodeIfPresent(String.self, forKey: .mode)
             workspacePath = try container.decodeIfPresent(String.self, forKey: .workspacePath)
             composerStatus = try container.decodeIfPresent(String.self, forKey: .composerStatus)
@@ -498,6 +483,23 @@ final class CursorAPI: @unchecked Sendable {
                 return int != 0
             }
             return false
+        }
+
+        private static func decodeSQLiteDouble(
+            _ container: KeyedDecodingContainer<CodingKeys>,
+            _ key: CodingKeys
+        ) throws -> Double? {
+            if let value = try? container.decode(Double.self, forKey: key) {
+                return value
+            }
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return Double(value)
+            }
+            if let value = try? container.decode(String.self, forKey: key),
+               let parsed = Double(value) {
+                return parsed
+            }
+            return nil
         }
     }
 

@@ -6,11 +6,15 @@
 	<dict>
 		<key>Resources/AppIcon.icns</key>
 		<data>
-		whNNmR2Ml8wtlrMNMvThTneKvfA=
+		mSCKRF/fFPGsOMfk3wD1KKcRZ9A=
 		</data>
 		<key>Resources/Assets.car</key>
 		<data>
-		inkZp0KLvBq9Ck8SmLTd2WbjZ1Y=
+		6byzMr9sbIW1A3zGdE7t5/l8MGA=
+		</data>
+		<key>Resources/NotificationLogo.png</key>
+		<data>
+		NBgJdlmKAfwyyNXeGhiXr9AmrsU=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -19,14 +23,21 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			ByQHgfpGoBb4Esv7zHYTSsboyunLM8rgNCLbSP9pv4g=
+			uik+BWVg1tRUHn6TfIf3noM3cch7Ww+e4dPDUbrSf+o=
 			</data>
 		</dict>
 		<key>Resources/Assets.car</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			QMPM1JsS6HV0XhZgnvWVonI3Ah5oFhc5IhhDlq4OpNQ=
+			+umZjbLS9P4MRyVPG3ZCmHFh3CwaPSVJ4iNMXHQVyUw=
+			</data>
+		</dict>
+		<key>Resources/NotificationLogo.png</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			207wy0Tc7TeLdPKRWXG/r2mUup3tH3ygIxe0PqotjOw=
 			</data>
 		</dict>
 	</dict>

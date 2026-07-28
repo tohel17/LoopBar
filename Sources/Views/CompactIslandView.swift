@@ -13,66 +13,72 @@ struct CompactIslandView: View {
     private var hasAgents: Bool { !store.agents.isEmpty }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if hasAgents {
-                CountChip(count: runningCount, label: "run", symbol: "bolt.fill", color: runningColor)
-                    .frame(width: 86, alignment: .leading)
+        Button {
+            viewModel.toggleExpanded()
+        } label: {
+            HStack(spacing: 0) {
+                if hasAgents {
+                    CountChip(count: runningCount, label: "run", symbol: "bolt.fill", color: runningColor)
+                        .frame(width: 86, alignment: .leading)
 
-                Spacer(minLength: 116)
+                    Spacer(minLength: 116)
 
-                CountChip(count: attentionCount, label: "wait", symbol: attentionSymbol, color: attentionColor)
-                    .frame(width: 86, alignment: .trailing)
-            } else {
-                StatusBadge(status: .waiting)
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, expanded ? 30 : 32)
-        .padding(.vertical, expanded ? 14 : 11)
-        .background {
-            // Keep the accent attached to the island itself.  Applying it
-            // to the tiny count label made most of the glow fall outside
-            // the label's bounds and become effectively invisible.
-            ZStack {
-                Color.black
-
-                if runningCount > 0 {
-                    RadialGradient(
-                        colors: [
-                            runningColor.opacity(0.90 * gradientStrength),
-                            runningColor.opacity(0.50 * gradientStrength),
-                            runningColor.opacity(0.15 * gradientStrength),
-                            .clear
-                        ],
-                        center: .topLeading,
-                        startRadius: 0,
-                        endRadius: 220
-                    )
-                    .blur(radius: 12)
-                    .offset(x: -18, y: -30)
-                }
-
-                if attentionCount > 0 {
-                    RadialGradient(
-                        colors: [
-                            attentionColor.opacity(0.90 * gradientStrength),
-                            attentionColor.opacity(0.50 * gradientStrength),
-                            attentionColor.opacity(0.15 * gradientStrength),
-                            .clear
-                        ],
-                        center: .topTrailing,
-                        startRadius: 0,
-                        endRadius: 220
-                    )
-                    .blur(radius: 12)
-                    .offset(x: 18, y: -30)
+                    CountChip(count: attentionCount, label: "wait", symbol: attentionSymbol, color: attentionColor)
+                        .frame(width: 86, alignment: .trailing)
+                } else {
+                    StatusBadge(status: store.lastUpdated == nil ? .waiting : .idle)
+                        .frame(maxWidth: .infinity)
                 }
             }
-            .allowsHitTesting(false)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, expanded ? 30 : 32)
+            .padding(.vertical, expanded ? 14 : 11)
+            .background {
+                // Keep the accent attached to the island itself.  Applying it
+                // to the tiny count label made most of the glow fall outside
+                // the label's bounds and become effectively invisible.
+                ZStack {
+                    Color.black
+
+                    if runningCount > 0 {
+                        RadialGradient(
+                            colors: [
+                                runningColor.opacity(0.90 * gradientStrength),
+                                runningColor.opacity(0.50 * gradientStrength),
+                                runningColor.opacity(0.15 * gradientStrength),
+                                .clear
+                            ],
+                            center: .topLeading,
+                            startRadius: 0,
+                            endRadius: 220
+                        )
+                        .blur(radius: 12)
+                        .offset(x: -18, y: -30)
+                    }
+
+                    if attentionCount > 0 {
+                        RadialGradient(
+                            colors: [
+                                attentionColor.opacity(0.90 * gradientStrength),
+                                attentionColor.opacity(0.50 * gradientStrength),
+                                attentionColor.opacity(0.15 * gradientStrength),
+                                .clear
+                            ],
+                            center: .topTrailing,
+                            startRadius: 0,
+                            endRadius: 220
+                        )
+                        .blur(radius: 12)
+                        .offset(x: 18, y: -30)
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+            // Include the padded notch-safe space between the counters in the
+            // button's hit target, not just the text and symbols.
+            .contentShape(Rectangle())
         }
-        // Keep the padded notch-safe space hoverable, not just the counters.
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
     }
 
     private var attentionStatus: AgentStatus? {
@@ -118,8 +124,8 @@ private enum IslandStatus {
         case .running: "Running"
         case let .attention(status, count):
             count == 1 ? status.compactAttentionLabel : "\(count) need you"
-        case .idle: "Idle"
-        case .waiting: "Waiting"
+        case .idle: "No agents"
+        case .waiting: "Connecting"
         }
     }
 

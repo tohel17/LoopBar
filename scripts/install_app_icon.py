@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Install LoopBar icon assets into a macOS .app bundle before signing.
 
-Copies AppIcon.icns for Finder/Dock, and when possible compiles Assets.car from
-Assets.xcassets so Notification Center can resolve the app logo. Sets
-CFBundleIconFile always, and CFBundleIconName only when Assets.car is present.
+Notification Center uses the LEFT banner icon from the app bundle
+(Assets.car + CFBundleIconName), not from UNNotificationAttachment (which
+appears on the RIGHT).
+
+On macOS 26+, prefer a Liquid Glass Icon Composer document (Assets/AppIcon.icon).
+A flat PNG appiconset alone lands in Tahoe "icon jail" (blank left banner icon).
 """
 
 from __future__ import annotations
@@ -16,37 +19,60 @@ import tempfile
 from pathlib import Path
 
 
-def compile_assets_car(xcassets: Path, resources: Path, deployment_target: str) -> bool:
-    """Compile Assets.car into resources. Returns True on success."""
-    actool = shutil.which("actool") or "/usr/bin/actool"
-    if not Path(actool).is_file():
-        print("warning: actool not found; skipping Assets.car (notifications may show a blank icon)")
+def resolve_actool() -> Path | None:
+    candidates = [
+        shutil.which("actool"),
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/actool",
+        "/usr/bin/actool",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return Path(candidate)
+    return None
+
+
+def compile_icons(source: Path, resources: Path, deployment_target: str) -> bool:
+    """Compile Assets.car (+ matching AppIcon.icns when actool emits it).
+
+    `source` may be an Icon Composer `.icon` bundle or an `.xcassets` catalog.
+    """
+    actool = resolve_actool()
+    if actool is None:
+        print("warning: actool not found; skipping Assets.car (notifications may show a blank left icon)")
         return False
 
     with tempfile.TemporaryDirectory() as tmp:
         partial = Path(tmp) / "partial.plist"
         compile_dir = Path(tmp) / "out"
         compile_dir.mkdir()
-        result = subprocess.run(
-            [
-                actool,
-                str(xcassets),
-                "--compile",
-                str(compile_dir),
-                "--platform",
-                "macosx",
-                "--minimum-deployment-target",
-                deployment_target,
-                "--app-icon",
-                "AppIcon",
-                "--output-partial-info-plist",
-                str(partial),
-            ],
-            capture_output=True,
-            text=True,
-        )
+        command = [
+            str(actool),
+            str(source),
+            "--compile",
+            str(compile_dir),
+            "--platform",
+            "macosx",
+            "--minimum-deployment-target",
+            deployment_target,
+            "--app-icon",
+            "AppIcon",
+            "--include-all-app-icons",
+            "--output-partial-info-plist",
+            str(partial),
+            "--enable-on-demand-resources",
+            "NO",
+            "--development-region",
+            "en",
+            "--target-device",
+            "mac",
+        ]
+        # Required so Icon Composer stacks compile instead of being stripped.
+        if source.suffix == ".icon" or source.name.endswith(".icon"):
+            command.append("--enable-icon-stack-fallback-generation=disabled")
+
+        result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
-            print("warning: actool failed; skipping Assets.car")
+            print(f"warning: actool failed for {source}; skipping Assets.car")
             if result.stderr.strip():
                 print(result.stderr.strip())
             if result.stdout.strip():
@@ -59,6 +85,9 @@ def compile_assets_car(xcassets: Path, resources: Path, deployment_target: str) 
             return False
 
         shutil.copy2(car, resources / "Assets.car")
+        actool_icns = compile_dir / "AppIcon.icns"
+        if actool_icns.is_file():
+            shutil.copy2(actool_icns, resources / "AppIcon.icns")
         return True
 
 
@@ -69,13 +98,19 @@ def main() -> None:
         "--icon",
         type=Path,
         default=Path("Assets/AppIcon.icns"),
-        help="Source .icns file (default: Assets/AppIcon.icns)",
+        help="Fallback .icns if actool does not emit one (default: Assets/AppIcon.icns)",
+    )
+    parser.add_argument(
+        "--composer-icon",
+        type=Path,
+        default=Path("Assets/AppIcon.icon"),
+        help="Icon Composer document for macOS 26+ (default: Assets/AppIcon.icon)",
     )
     parser.add_argument(
         "--xcassets",
         type=Path,
         default=Path("Assets/Assets.xcassets"),
-        help="Asset catalog source (default: Assets/Assets.xcassets)",
+        help="Legacy asset catalog fallback (default: Assets/Assets.xcassets)",
     )
     parser.add_argument(
         "--deployment-target",
@@ -89,17 +124,26 @@ def main() -> None:
     resources = contents / "Resources"
     if not info_path.is_file():
         raise FileNotFoundError(f"Missing bundle Info.plist: {info_path}")
-    if not args.icon.is_file():
-        raise FileNotFoundError(f"Missing icon asset: {args.icon}")
 
     resources.mkdir(exist_ok=True)
-    shutil.copy2(args.icon, resources / "AppIcon.icns")
+
+    # Seed a fallback .icns first; actool may overwrite with a matching one.
+    if args.icon.is_file():
+        shutil.copy2(args.icon, resources / "AppIcon.icns")
+    elif not (resources / "AppIcon.icns").is_file():
+        raise FileNotFoundError(f"Missing icon asset: {args.icon}")
 
     has_car = False
-    if args.xcassets.is_dir() and (args.xcassets / "AppIcon.appiconset").is_dir():
-        has_car = compile_assets_car(args.xcassets, resources, args.deployment_target)
-    else:
-        print(f"warning: missing asset catalog at {args.xcassets}; skipping Assets.car")
+    composer = args.composer_icon
+    if composer.is_dir() and (composer / "icon.json").is_file():
+        has_car = compile_icons(composer, resources, args.deployment_target)
+        if has_car:
+            print(f"Compiled Liquid Glass icon from {composer}")
+    if not has_car and args.xcassets.is_dir() and (args.xcassets / "AppIcon.appiconset").is_dir():
+        print(f"warning: falling back to flat xcassets at {args.xcassets} (blank left icon on macOS 26)")
+        has_car = compile_icons(args.xcassets, resources, args.deployment_target)
+    if not has_car:
+        print("warning: no Assets.car installed")
 
     with info_path.open("rb") as file:
         info = plistlib.load(file)

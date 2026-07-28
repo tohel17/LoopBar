@@ -79,8 +79,16 @@ final class NotificationService {
         content.sound = .default
         content.threadIdentifier = agent.id
         if let url = agent.url {
-            content.userInfo = ["agentURL": url.absoluteString]
+            content.userInfo = [
+                "agentURL": url.absoluteString,
+                "agentSource": agent.source.rawValue
+            ]
+        } else {
+            content.userInfo = ["agentSource": agent.source.rawValue]
         }
+        // Do not attach NotificationLogo.png — that appears on the RIGHT of the
+        // banner. The LEFT icon must come from the app bundle (Assets.car +
+        // CFBundleIconName / AppIcon.icns).
 
         let request = UNNotificationRequest(
             identifier: "loopbar.\(agent.id).\(newStatus.rawValue)",

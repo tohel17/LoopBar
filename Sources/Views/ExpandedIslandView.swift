@@ -22,9 +22,23 @@ struct ExpandedIslandView: View {
         Group {
             if store.agents.isEmpty {
                 ContentUnavailableView {
-                    Label(emptyMessage, systemImage: viewModel.state == .loading ? "arrow.triangle.2.circlepath" : "bubble.left.and.bubble.right")
+                    Label(
+                        EmptyAgentsCopy.title(
+                            lastUpdated: store.lastUpdated,
+                            errorMessage: store.errorMessage
+                        ),
+                        systemImage: store.lastUpdated == nil ? "arrow.triangle.2.circlepath" : "bubble.left.and.bubble.right"
+                    )
                 } description: {
-                    Text(viewModel.state == .loading ? "Checking enabled sources" : "Recent activity from enabled sources will appear here.")
+                    Text(
+                        EmptyAgentsCopy.detail(
+                            lastUpdated: store.lastUpdated,
+                            errorMessage: store.errorMessage,
+                            cursorEnabled: store.settings.cursorEnabled,
+                            codexEnabled: store.settings.codexEnabled,
+                            claudeEnabled: store.settings.claudeEnabled
+                        )
+                    )
                 }
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.62))
@@ -43,7 +57,7 @@ struct ExpandedIslandView: View {
                 .frame(height: IslandMetrics.listHeight(agentCount: store.agents.count))
             }
 
-            if let error = store.errorMessage {
+            if let error = store.errorMessage, !store.agents.isEmpty {
                 Text(error)
                     .font(.caption2)
                     .foregroundStyle(.red.opacity(0.9))
@@ -51,13 +65,6 @@ struct ExpandedIslandView: View {
                     .padding(.bottom, 8)
             }
         }
-    }
-
-    private var emptyMessage: String {
-        if viewModel.state == .loading {
-            return "Connecting…"
-        }
-        return "No recent agents"
     }
 
     // MARK: - Settings
