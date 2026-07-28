@@ -84,13 +84,14 @@ Cursor Desktop status is inferred without hooks, in this order:
 1. Explicit blocked state
 2. Pending plan or blocking pending action → approval
 3. Unread messages → waiting for input
-4. Active generation, continuation, worktree application/creation/undo → running
-5. Queue items → queued
-6. Incrementally parsed transcript turn state → running, completed, or failed
-7. An `aborted` follow-up with an advanced timestamp stays running until Cursor writes its terminal status
-8. Other explicit status values
-9. Completion subtitle (`Edited …`) → completed
-10. Recent activity within the 15-second fallback window → running; otherwise unknown
+4. Live generation → running: legacy composer flags **or** a recent `bubbleId` tool with `toolFormerData.status = loading` (age-filtered; Cursor often leaves composer-level generation flags empty mid-run)
+5. Definitive terminal database status when there is no live generation evidence
+6. An `aborted` follow-up with advanced activity stays running until Cursor writes its terminal status (sustained by bubble/transcript/header recency, not header freshness alone)
+7. Queue items → queued
+8. Transcript turn state (`role:user` / `role:assistant` open turn, or `turn_ended`) → running, completed, or failed
+9. Other explicit status values
+10. Completion subtitle (`Edited …`) → completed
+11. Recent activity within the 15-second fallback window (header, newest bubble, or transcript mtime) → running; otherwise unknown
 
 macOS filesystem events watch Cursor's local database and project transcript directories. Writes are debounced briefly and trigger an immediate refresh, while the configured polling interval remains as a recovery pass. Transcript paths and read offsets are cached, so subsequent refreshes read only newly appended JSONL data. The Cursor process table is used only to prevent a closed desktop application from leaving a composer marked as running; shared Electron processes are never attributed to individual composers.
 
@@ -116,9 +117,9 @@ The proposed Claude Code source architecture is documented in
 - `Sources/Models/IslandState.swift` — compact, expanded, loading, and notification chrome states.
 - `Sources/Models/IslandContent.swift` — agents, settings, and logs body selection.
 - `Sources/Services/AgentStore.swift` — main-actor observable store, event-triggered and periodic refreshes, sorting, transient error handling, and status-transition notification triggers.
-- `Sources/Services/CursorAPI.swift` — read-only SQLite access to Cursor's `composerHeaders` and related `cursorDiskKV` records.
+- `Sources/Services/CursorAPI.swift` — read-only SQLite access to Cursor's `composerHeaders`, `composerData`, and recent `bubbleId` tool activity.
 - `Sources/Services/CursorFileWatcher.swift` — debounced macOS filesystem events for Cursor's state and transcript directories.
-- `Sources/Services/CursorTranscriptMonitor.swift` — cached transcript discovery and incremental turn-state parsing.
+- `Sources/Services/CursorTranscriptMonitor.swift` — cached transcript discovery and incremental turn-state parsing (`user`/`assistant`/`turn_ended`).
 - `Sources/Services/CursorActivityTracker.swift` — cross-refresh inference for Cursor's `aborted`-while-running follow-up lifecycle.
 - `Sources/Services/CursorDesktopProcessDiscovery.swift` — application-level Cursor Desktop process guard.
 - `Sources/Services/CursorHookCleanup.swift` — one-time removal of LoopBar's legacy hook without changing unrelated user hook commands.
@@ -164,16 +165,18 @@ For signing, sandboxing, and reliable UserNotifications behavior, move `Sources/
 
 ### App icon
 
-The mascot icon master is [`Assets/LoopBar-AppIcon-v7.png`](Assets/LoopBar-AppIcon-v7.png); the macOS bundle asset is [`Assets/AppIcon.icns`](Assets/AppIcon.icns). Regenerate the `.icns` asset after changing the master PNG:
+The mascot icon master is [`Assets/LoopBar-AppIcon-v7.png`](Assets/LoopBar-AppIcon-v7.png). Packaging needs both a loose `.icns` (Finder/Dock) and a compiled asset catalog (`Assets.car` + `CFBundleIconName`) so Notification Center can show the logo. A loose `.icns` alone leaves a blank notification icon on modern macOS.
+
+Regenerate icon assets after changing the master PNG:
 
 ```sh
 python3 scripts/create_app_icon.py Assets/LoopBar-AppIcon-v7.png Assets/AppIcon.icns
 ```
 
-As part of packaging, install the icon before signing the `.app` bundle:
+That writes `Assets/AppIcon.icns` and `Assets/Assets.xcassets/AppIcon.appiconset/`. Install into the `.app` bundle before signing (`actool` from Xcode is required for `Assets.car`):
 
 ```sh
 python3 scripts/install_app_icon.py path/to/LoopBar.app
 ```
 
-The installer adds `AppIcon.icns` to `Contents/Resources` and sets `CFBundleIconFile` to `AppIcon`. Re-sign the app after this step.
+The installer adds `AppIcon.icns` and `Assets.car` to `Contents/Resources`, sets `CFBundleIconFile` / `CFBundleIconName` to `AppIcon`, then you re-sign the app.

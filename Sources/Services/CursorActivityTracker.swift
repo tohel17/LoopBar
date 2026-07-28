@@ -16,6 +16,11 @@ final class CursorActivityTracker: @unchecked Sendable {
     private var observations: [String: Observation] = [:]
     private let maximumInferredRun: TimeInterval = 6 * 60 * 60
 
+    /// - Parameter isRecentlyUpdated: Recent activity from any live signal
+    ///   (header, bubble, or transcript) — not header `lastUpdatedAt` alone.
+    ///   Cursor often freezes the composer header timestamp mid-run.
+    /// - Parameter hasDirectRunningEvidence: Loading bubbles, legacy generation
+    ///   flags, or an open transcript turn.
     func isInferredRunning(
         composerID: String,
         updatedAt: Date,
@@ -57,10 +62,17 @@ final class CursorActivityTracker: @unchecked Sendable {
                 inferredRunning = true
                 inferredSince = now
             } else if previous.inferredRunning, isAmbiguous {
-                let started = previous.inferredSince ?? now
-                inferredRunning = now.timeIntervalSince(started)
-                    < maximumInferredRun
-                inferredSince = started
+                // Sustain on fresh activity (bubbles/transcript/header) or
+                // direct running evidence. Do not clear solely because the
+                // composer header timestamp went stale mid-run.
+                if !isRecentlyUpdated, !hasDirectRunningEvidence {
+                    inferredRunning = false
+                } else {
+                    let started = previous.inferredSince ?? now
+                    inferredRunning = now.timeIntervalSince(started)
+                        < maximumInferredRun
+                    inferredSince = started
+                }
             }
         }
 

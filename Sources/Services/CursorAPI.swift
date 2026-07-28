@@ -7,8 +7,8 @@ import Foundation
 /// Cursor's data.
 final class CursorAPI: @unchecked Sendable {
     // Cursor does not keep its live generation flags populated consistently
-    // for long-running composers. Use the header recency window as the
-    // fallback signal for active work.
+    // for long-running composers. Use the header/bubble/transcript recency
+    // window as the fallback signal for active work.
     private static let activeWindow: TimeInterval = 15
 
     private let databaseURL = FileManager.default.homeDirectoryForCurrentUser
@@ -99,6 +99,11 @@ final class CursorAPI: @unchecked Sendable {
         let now = Date()
         let data = output.fileHandleForReading.readDataToEndOfFile()
         let composers = try JSONDecoder().decode([LocalComposer].self, from: data)
+        let bubbleActivity = readBubbleActivity(
+            for: composers.map(\.id),
+            from: databaseURL,
+            now: now
+        )
         let transcripts = transcriptMonitor.snapshots(
             for: Set(composers.map(\.id)),
             projectsURL: projectsURL
@@ -110,29 +115,37 @@ final class CursorAPI: @unchecked Sendable {
                 timeIntervalSince1970: composer.updatedAt / 1_000
             )
             let transcript = transcripts[composer.id]
-            let activityDate = max(
+            let bubble = bubbleActivity[composer.id] ?? .empty
+            let activityDate = [
                 databaseUpdatedAt,
-                transcript?.modifiedAt ?? .distantPast
-            )
+                transcript?.modifiedAt ?? .distantPast,
+                bubble.newestCreatedAt ?? .distantPast
+            ].max() ?? databaseUpdatedAt
             let isRecentlyActive = now.timeIntervalSince(activityDate)
                 < Self.activeWindow
-            let isDatabaseRecentlyUpdated =
-                now.timeIntervalSince(databaseUpdatedAt) < Self.activeWindow
+            let hasLiveGeneration = composer.hasLegacyGeneratingFlags
+                || bubble.hasRecentLoadingTool
+            let hasDirectRunningEvidence = hasLiveGeneration
+                || transcript?.state == .running
+            // ActivityTracker needs overall activity (including bubbles), not
+            // header freshness alone — Cursor often freezes lastUpdatedAt mid-run.
             let inferredFollowUpRunning = activityTracker.isInferredRunning(
                 composerID: composer.id,
                 updatedAt: databaseUpdatedAt,
                 rawStatus: composer.composerStatus,
-                isRecentlyUpdated: isDatabaseRecentlyUpdated,
-                hasDirectRunningEvidence: composer.isActivelyGenerating
-                    || (
-                        transcript?.state == .running
-                            && isRecentlyActive
-                    ),
+                isRecentlyUpdated: isRecentlyActive,
+                hasDirectRunningEvidence: hasDirectRunningEvidence,
                 isCursorRunning: isCursorRunning
             )
             let modeLabel = composer.mode.map { " · \($0)" } ?? ""
             let status = Self.status(
-                for: composer,
+                composerStatus: composer.composerStatus,
+                hasLiveGeneration: hasLiveGeneration,
+                hasPendingPlan: composer.hasPendingPlan,
+                hasUnreadMessages: composer.hasUnreadMessages,
+                hasBlockingPendingActions: composer.hasBlockingPendingActions,
+                queueItemCount: composer.queueItemCount,
+                hasCompletionSubtitle: composer.hasCompletionSubtitle,
                 transcriptState: transcript?.state ?? .none,
                 isRecentlyActive: isRecentlyActive,
                 isCursorRunning: isCursorRunning,
@@ -154,14 +167,93 @@ final class CursorAPI: @unchecked Sendable {
         }
     }
 
-    private static func status(
-        for composer: LocalComposer,
+    /// Live bubble activity for the given composers. Cursor writes per-step
+    /// `bubbleId:{composerId}:{bubbleId}` rows while tools run; composer-level
+    /// generation flags often stay empty.
+    private func readBubbleActivity(
+        for composerIDs: [String],
+        from databaseURL: URL,
+        now: Date
+    ) -> [String: BubbleActivity] {
+        guard !composerIDs.isEmpty else { return [:] }
+
+        let predicates = composerIDs.map { id in
+            let escaped = id.replacingOccurrences(of: "'", with: "''")
+            return "key LIKE 'bubbleId:\(escaped):%'"
+        }.joined(separator: " OR ")
+
+        // json_valid skips malformed rows that would abort json_extract.
+        let query = """
+            SELECT
+                key,
+                CASE WHEN json_valid(value)
+                    THEN json_extract(value, '$.createdAt') END AS created_at,
+                CASE WHEN json_valid(value)
+                    THEN json_extract(value, '$.toolFormerData.status') END AS tool_status
+            FROM cursorDiskKV
+            WHERE \(predicates);
+            """
+
+        let process = Process()
+        let output = Pipe()
+        let error = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        process.arguments = [
+            "-readonly",
+            "-cmd", ".timeout 500",
+            "-json",
+            databaseURL.path,
+            query
+        ]
+        process.standardOutput = output
+        process.standardError = error
+        do {
+            try process.run()
+        } catch {
+            return [:]
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return [:] }
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        guard !data.isEmpty,
+              let rows = try? JSONDecoder().decode([BubbleRow].self, from: data) else {
+            return [:]
+        }
+
+        var result: [String: BubbleActivity] = [:]
+        for row in rows {
+            guard let composerID = Self.composerID(fromBubbleKey: row.key) else { continue }
+            var activity = result[composerID] ?? .empty
+            if let createdAt = Self.parseBubbleDate(row.createdAt) {
+                if activity.newestCreatedAt == nil || createdAt > activity.newestCreatedAt! {
+                    activity.newestCreatedAt = createdAt
+                }
+                if row.toolStatus == "loading",
+                   now.timeIntervalSince(createdAt) < Self.activeWindow {
+                    activity.hasRecentLoadingTool = true
+                }
+            }
+            result[composerID] = activity
+        }
+        return result
+    }
+
+    /// Status fusion used by production reads and unit tests.
+    static func status(
+        composerStatus: String?,
+        hasLiveGeneration: Bool,
+        hasPendingPlan: Bool,
+        hasUnreadMessages: Bool,
+        hasBlockingPendingActions: Bool,
+        queueItemCount: Int,
+        hasCompletionSubtitle: Bool,
         transcriptState: CursorTranscriptMonitor.TurnState,
         isRecentlyActive: Bool,
         isCursorRunning: Bool?,
         inferredFollowUpRunning: Bool
     ) -> AgentStatus {
-        let explicitStatus = AgentStatus(apiValue: composer.composerStatus)
+        let explicitStatus = AgentStatus(apiValue: composerStatus)
 
         // Process state is only an app-level guard. If Cursor Desktop is
         // closed, preserve durable terminal evidence but do not present stale
@@ -178,7 +270,7 @@ final class CursorAPI: @unchecked Sendable {
             if explicitStatus.isTerminal {
                 return explicitStatus
             }
-            if composer.hasCompletionSubtitle {
+            if hasCompletionSubtitle {
                 return .completed
             }
             return .unknown
@@ -187,50 +279,61 @@ final class CursorAPI: @unchecked Sendable {
         if explicitStatus == .blocked {
             return .blocked
         }
-        if composer.hasPendingPlan {
+        if hasPendingPlan {
             return .waitingForApproval
         }
-        if composer.hasUnreadMessages {
+        if hasUnreadMessages {
             return .waitingForInput
         }
-        if composer.hasBlockingPendingActions {
+        if hasBlockingPendingActions {
             return .waitingForApproval
         }
-        // Honour definitive terminal evidence before heuristic running
-        // signals. The database status and transcript turn records are
-        // authoritative; inferred-follow-up and recency heuristics can
-        // lag and keep a finished composer stuck as "Running".
+        // Live generation (legacy flags or recent loading bubbles) is
+        // real-time and takes priority over a briefly stale terminal DB
+        // status during follow-up start-up.
+        if hasLiveGeneration {
+            return .running
+        }
+        // Honour the database's terminal status when there is no live
+        // generation evidence.
         if explicitStatus.isTerminal {
             return explicitStatus
-        }
-        switch transcriptState {
-        case .completed: return .completed
-        case .failed: return .failed
-        default: break
         }
         if inferredFollowUpRunning {
             return .running
         }
-        if composer.isActivelyGenerating {
-            return .running
-        }
-        if composer.queueItemCount > 0 {
+        if queueItemCount > 0 {
             return .queued
         }
 
-        // Transcript terminal states are already handled above; only
-        // the running inference remains relevant here.
-        if transcriptState == .running, isRecentlyActive {
+        switch transcriptState {
+        case .running:
+            // An open transcript turn is live evidence while Cursor is open.
             return .running
+        case .completed:
+            return .completed
+        case .failed:
+            return .failed
+        case .none:
+            break
         }
 
         if explicitStatus != .unknown {
             return explicitStatus
         }
-        if composer.hasCompletionSubtitle {
+        if hasCompletionSubtitle {
             return .completed
         }
         return isRecentlyActive ? .running : .unknown
+    }
+
+    /// Whether a loading bubble createdAt falls inside the activity window.
+    static func isRecentLoadingBubble(
+        createdAt: Date,
+        now: Date,
+        window: TimeInterval = activeWindow
+    ) -> Bool {
+        now.timeIntervalSince(createdAt) < window
     }
 
     private static func statusText(for status: AgentStatus, updatedAt: Date, modeLabel: String) -> String {
@@ -262,6 +365,57 @@ final class CursorAPI: @unchecked Sendable {
         return URL(fileURLWithPath: workspacePath)
     }
 
+    private static func composerID(fromBubbleKey key: String) -> String? {
+        // bubbleId:{composerId}:{bubbleId}
+        let parts = key.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "bubbleId" else { return nil }
+        return String(parts[1])
+    }
+
+    private static func parseBubbleDate(_ raw: String?) -> Date? {
+        guard let raw, !raw.isEmpty else { return nil }
+        if let millis = Double(raw) {
+            let seconds = millis > 1_000_000_000_000 ? millis / 1_000 : millis
+            return Date(timeIntervalSince1970: seconds)
+        }
+        return iso8601WithFractionalSeconds.date(from: raw)
+            ?? iso8601.date(from: raw)
+    }
+
+    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    struct BubbleActivity: Sendable, Equatable {
+        var hasRecentLoadingTool: Bool
+        var newestCreatedAt: Date?
+
+        static let empty = BubbleActivity(
+            hasRecentLoadingTool: false,
+            newestCreatedAt: nil
+        )
+    }
+
+    private struct BubbleRow: Decodable {
+        let key: String
+        let createdAt: String?
+        let toolStatus: String?
+
+        enum CodingKeys: String, CodingKey {
+            case key
+            case createdAt = "created_at"
+            case toolStatus = "tool_status"
+        }
+    }
+
     private struct LocalComposer: Decodable {
         let id: String
         let title: String
@@ -280,7 +434,7 @@ final class CursorAPI: @unchecked Sendable {
         let hasPendingPlan: Bool
         let hasUnreadMessages: Bool
 
-        var isActivelyGenerating: Bool {
+        var hasLegacyGeneratingFlags: Bool {
             generatingBubbleCount > 0
                 || isContinuationInProgress
                 || isApplyingWorktree

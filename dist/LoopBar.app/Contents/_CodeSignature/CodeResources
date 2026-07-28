@@ -8,6 +8,10 @@
 		<data>
 		whNNmR2Ml8wtlrMNMvThTneKvfA=
 		</data>
+		<key>Resources/Assets.car</key>
+		<data>
+		inkZp0KLvBq9Ck8SmLTd2WbjZ1Y=
+		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
@@ -16,6 +20,13 @@
 			<key>hash2</key>
 			<data>
 			ByQHgfpGoBb4Esv7zHYTSsboyunLM8rgNCLbSP9pv4g=
+			</data>
+		</dict>
+		<key>Resources/Assets.car</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			QMPM1JsS6HV0XhZgnvWVonI3Ah5oFhc5IhhDlq4OpNQ=
 			</data>
 		</dict>
 	</dict>

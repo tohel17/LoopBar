@@ -9,12 +9,12 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
         case completed
         case failed
     }
-
+    
     struct Snapshot: Sendable {
         let modifiedAt: Date?
         let state: TurnState
     }
-
+    
     private struct Entry {
         let url: URL
         var offset: UInt64
@@ -22,23 +22,23 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
         var modifiedAt: Date?
         var state: TurnState
     }
-
+    
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
-
+    
     func snapshots(
         for composerIDs: Set<String>,
         projectsURL: URL
     ) -> [String: Snapshot] {
         lock.lock()
         defer { lock.unlock() }
-
+        
         entries = entries.filter {
             composerIDs.contains($0.key)
-                && FileManager.default.fileExists(atPath: $0.value.url.path)
+            && FileManager.default.fileExists(atPath: $0.value.url.path)
         }
         resolveMissingTranscripts(for: composerIDs, projectsURL: projectsURL)
-
+        
         var result: [String: Snapshot] = [:]
         for composerID in composerIDs {
             guard var entry = entries[composerID] else { continue }
@@ -51,7 +51,19 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
         }
         return result
     }
-
+    
+    /// Parses turn lifecycle from transcript JSONL lines.
+    ///
+    /// Current Cursor transcripts use `role:user` / `role:assistant` messages
+    /// plus `type:turn_ended`. They no longer emit `turn_started`.
+    static func turnState(fromJSONL content: String) -> TurnState {
+        var state: TurnState = .none
+        for line in content.components(separatedBy: "\n") {
+            apply(line: line, to: &state)
+        }
+        return state
+    }
+    
     private func resolveMissingTranscripts(
         for composerIDs: Set<String>,
         projectsURL: URL
@@ -69,7 +81,7 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
               ) else {
             return
         }
-
+        
         var candidates: [String: (url: URL, modifiedAt: Date)] = [:]
         for case let fileURL as URL in enumerator {
             guard fileURL.pathExtension == "jsonl" else { continue }
@@ -85,7 +97,7 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
                 candidates[composerID] = (fileURL, modifiedAt)
             }
         }
-
+        
         for (composerID, candidate) in candidates {
             entries[composerID] = Entry(
                 url: candidate.url,
@@ -96,27 +108,27 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
             )
         }
     }
-
+    
     private func update(_ entry: inout Entry) {
         guard let values = try? entry.url.resourceValues(
             forKeys: [.contentModificationDateKey, .fileSizeKey]
         ) else {
             return
         }
-
+        
         let size = UInt64(max(values.fileSize ?? 0, 0))
         let modifiedAt = values.contentModificationDate
         guard modifiedAt != entry.modifiedAt || size != entry.offset else { return }
-
+        
         if size < entry.offset {
             entry.offset = 0
             entry.remainder = ""
             entry.state = .none
         }
-
+        
         guard let handle = try? FileHandle(forReadingFrom: entry.url) else { return }
         defer { try? handle.close() }
-
+        
         // On first observation, a bounded tail is enough to recover the latest
         // turn boundary without loading an arbitrarily large conversation.
         if entry.offset == 0, size > 256 * 1_024 {
@@ -127,7 +139,7 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
               let appended = String(data: data, encoding: .utf8) else {
             return
         }
-
+        
         let combined = entry.remainder + appended
         var lines = combined.components(separatedBy: "\n")
         if combined.hasSuffix("\n") {
@@ -135,42 +147,46 @@ final class CursorTranscriptMonitor: @unchecked Sendable {
         } else {
             entry.remainder = lines.popLast() ?? ""
         }
-
-        // Cursor does not always append an explicit turn_started record for a
-        // follow-up in an existing composer, and completion may have come from
-        // SQLite rather than the transcript. After the initial transcript read,
-        // any later complete JSONL record is therefore live activity. A
-        // turn_ended record in the same batch immediately replaces this
-        // provisional running state below.
-        // Only infer running from new content when the state is not already
-        // terminal. Post-completion writes (metadata, summaries) should not
-        // flip .completed/.failed back to .running; only an explicit
-        // turn_started record (handled in apply()) may do that.
-        if entry.modifiedAt != nil,
-           entry.state != .completed, entry.state != .failed,
-           lines.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            entry.state = .running
-        }
-
+        
         for line in lines {
-            apply(line: line, to: &entry.state)
+            Self.apply(line: line, to: &entry.state)
         }
         entry.offset = size
         entry.modifiedAt = modifiedAt
     }
+    
+    private static func apply(line: String, to state: inout TurnState) {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
 
-    private func apply(line: String, to state: inout TurnState) {
-        if line.contains("\"type\":\"turn_started\"") {
+        if trimmed.contains("\"type\":\"turn_ended\"") {
+            if trimmed.contains("\"status\":\"success\"") {
+                state = .completed
+            } else if trimmed.contains("\"status\":\"error\"") {
+                state = .failed
+            } else {
+                state = .none
+            }
+            return
+        }
+
+        // A new user message opens a turn. Late metadata after turn_ended must
+        // not reopen the turn unless it is a follow-up user message.
+        if trimmed.contains("\"role\":\"user\"") {
             state = .running
             return
         }
-        guard line.contains("\"type\":\"turn_ended\"") else { return }
-        if line.contains("\"status\":\"success\"") {
-            state = .completed
-        } else if line.contains("\"status\":\"error\"") {
-            state = .failed
-        } else {
-            state = .none
+
+        if trimmed.contains("\"role\":\"assistant\"") {
+            if state != .completed && state != .failed {
+                state = .running
+            }
+            return
+        }
+
+        // Legacy transcripts may still emit turn_started.
+        if trimmed.contains("\"type\":\"turn_started\"") {
+            state = .running
         }
     }
 }
