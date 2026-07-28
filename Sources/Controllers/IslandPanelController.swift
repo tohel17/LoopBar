@@ -13,6 +13,7 @@ final class IslandPanelController {
     private var panel: NSPanel!
     private var hostingView: NSHostingView<IslandRootView>!
     private var cancellables = Set<AnyCancellable>()
+    private var outsideClickMonitors: [Any] = []
     private var lastExpandedChrome = false
 
     init(store: AgentStore, viewModel: IslandViewModel) {
@@ -23,6 +24,11 @@ final class IslandPanelController {
         reposition(animated: false)
         observeScreenChanges()
         observeSizeDrivers()
+        observeOutsideClicks()
+    }
+
+    deinit {
+        outsideClickMonitors.forEach(NSEvent.removeMonitor)
     }
 
     // MARK: - Panel setup
@@ -62,6 +68,54 @@ final class IslandPanelController {
                 self?.reposition(animated: false)
             }
         }
+    }
+
+    /// Collapse without consuming the original click. Local monitoring covers
+    /// LoopBar-owned windows; global monitoring covers clicks in other apps.
+    private func observeOutsideClicks() {
+        let mouseDownEvents: NSEvent.EventTypeMask = [
+            .leftMouseDown,
+            .rightMouseDown,
+            .otherMouseDown
+        ]
+
+        if let localMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseDownEvents) { [weak self] event in
+            let screenLocation = NSEvent.mouseLocation
+            Task { @MainActor [weak self] in
+                self?.handleOutsideClick(at: screenLocation)
+            }
+            return event
+        } {
+            outsideClickMonitors.append(localMonitor)
+        }
+
+        if let globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseDownEvents) { [weak self] _ in
+            let screenLocation = NSEvent.mouseLocation
+            Task { @MainActor [weak self] in
+                self?.handleOutsideClick(at: screenLocation)
+            }
+        } {
+            outsideClickMonitors.append(globalMonitor)
+        }
+    }
+
+    private func handleOutsideClick(at screenLocation: CGPoint) {
+        guard Self.shouldCollapseOnOutsideClick(
+            isExpanded: viewModel.isExpandedChrome,
+            panelFrame: panel.frame,
+            clickLocation: screenLocation
+        ) else {
+            return
+        }
+        viewModel.collapse()
+    }
+
+    static func shouldCollapseOnOutsideClick(
+        isExpanded: Bool,
+        panelFrame: CGRect,
+        clickLocation: CGPoint
+    ) -> Bool {
+        isExpanded && !panelFrame.contains(clickLocation)
     }
 
     /// Resize when island chrome or agent content that affects height changes.

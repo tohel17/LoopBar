@@ -41,7 +41,7 @@ The left running accent is source-aware:
 
 Green is reserved for completed agents in expanded rows. The right attention accent is status-aware: yellow for approval/input, orange for blocked, and red for failed. Large soft radial gradients begin at the island's upper-left and upper-right corners and use these same accents. The empty center remains clear around the notch.
 
-The entire compact header is one click target, including the empty notch-safe space between the counters. Clicking anywhere in it toggles expanded mode.
+The entire compact header is one click target, including the empty notch-safe space between the counters. Clicking anywhere in it toggles expanded mode. While expanded, clicking anywhere outside LoopBar immediately returns it to compact mode without consuming the click; leaving the pointer outside still applies the existing two-second auto-collapse delay.
 
 ### Expanded / maximized mode
 
