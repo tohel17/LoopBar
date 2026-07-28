@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 /// Observable store for event-triggered and periodically reconciled agent data.
@@ -25,8 +26,16 @@ final class AgentStore: ObservableObject {
     private var hasLoadedInitialSnapshot = false
     private var lastStatuses: [String: AgentStatus] = [:]
     private var notificationFeedbackTask: Task<Void, Never>?
+    private var settingsObserver: AnyCancellable?
 
     init() {
+        // `settings` is a nested ObservableObject, so mutating one of its
+        // properties never reaches AgentStore's own publisher. Without this
+        // forwarding, controls bound through `$store.settings.…` keep rendering
+        // the previous value even though the write landed.
+        settingsObserver = settings.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         cursorFileWatcher.start { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.settings.cursorEnabled else { return }

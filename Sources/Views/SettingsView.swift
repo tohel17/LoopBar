@@ -28,6 +28,9 @@ struct SettingsView: View {
                 }
             }
         }
+        // Both layouts expose the interval picker; restart polling so a new
+        // interval applies now instead of after the in-flight sleep elapses.
+        .onChange(of: store.settings.refreshSeconds) { _, _ in store.updateSettings() }
         .padding(.horizontal, isEmbedded ? 38 : 16)
         .padding(.vertical, isEmbedded ? 22 : 16)
         .frame(width: isEmbedded ? nil : 420)

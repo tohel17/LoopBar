@@ -5,15 +5,19 @@ import Foundation
 ///
 /// Claude usually closes its transcript after appending to it, so file
 /// timestamps alone cannot establish liveness. This service combines recent
-/// JSONL metadata with terminal-attached `claude` processes and their CWDs.
+/// JSONL metadata with Claude's live-session registry and terminal processes.
 final class ClaudeAPI: @unchecked Sendable {
+    private static let approvalSettleWindow: TimeInterval = 2
+    private static let idleSettleWindow: TimeInterval = 3
     private static let busyWindow: TimeInterval = 30
     private static let recentWindow: TimeInterval = 6 * 60 * 60
     private let projectsURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/projects")
+    private let liveSessionsURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/sessions")
     private var previousLiveIDs = Set<String>()
     private var missingPolls: [String: Int] = [:]
-    private var claimedSessionByTTY: [String: String] = [:]
+    private var claimedSessionByProcess: [String: String] = [:]
 
     func fetchAgents() async throws -> [CursorAgent] {
         try await Task.detached(priority: .userInitiated) {
@@ -25,7 +29,7 @@ final class ClaudeAPI: @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: projectsURL.path) else { return [] }
 
         let processes = try discoverProcesses()
-        let sessions = scanSessions(now: now)
+        let sessions = scanSessions(now: now, liveTranscriptPaths: Set(processes.compactMap(\.transcriptPath)))
         var claims = claimsByProject(for: processes, sessions: sessions)
         var liveIDs = Set<String>()
 
@@ -49,9 +53,26 @@ final class ClaudeAPI: @unchecked Sendable {
             let status: AgentStatus
             let detail: String
             if isLive {
-                let busy = now.timeIntervalSince(session.metadata.lastActivity ?? session.modifiedAt) < Self.busyWindow
-                status = .running
-                detail = busy ? "Working in Claude Code" : "Claude Code is open · waiting"
+                let liveProcess = processes.first { process in
+                    process.transcriptPath == session.url.path
+                        || claimedSessionByProcess[process.identity] == session.url.path
+                }
+                status = Self.liveStatus(
+                    metadata: session.metadata,
+                    process: liveProcess,
+                    now: now
+                )
+                switch status {
+                case .waitingForApproval:
+                    detail = "Waiting for approval in Claude Code"
+                case .waitingForInput:
+                    detail = "Waiting for your response in Claude Code"
+                case .completed:
+                    detail = "Task finished · Claude Code is open"
+                default:
+                    let busy = now.timeIntervalSince(session.metadata.lastActivity ?? session.modifiedAt) < Self.busyWindow
+                    detail = busy ? "Working in Claude Code" : "Claude Code is open"
+                }
             } else if priorLive, missingCount >= 2 {
                 status = session.metadata.hasError ? .failed : .completed
                 detail = status == .failed ? "Claude Code stopped with an error" : "Claude Code session finished"
@@ -86,7 +107,7 @@ final class ClaudeAPI: @unchecked Sendable {
             .map { $0 }
     }
 
-    private func scanSessions(now: Date) -> [Session] {
+    private func scanSessions(now: Date, liveTranscriptPaths: Set<String>) -> [Session] {
         guard let projects = try? FileManager.default.contentsOfDirectory(
             at: projectsURL,
             includingPropertiesForKeys: nil,
@@ -102,7 +123,8 @@ final class ClaudeAPI: @unchecked Sendable {
             return files.compactMap { file -> Session? in
                 guard file.pathExtension == "jsonl",
                       let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                      now.timeIntervalSince(modified) < Self.recentWindow else { return nil }
+                      now.timeIntervalSince(modified) < Self.recentWindow || liveTranscriptPaths.contains(file.path)
+                else { return nil }
                 return Session(url: file, projectURL: project, modifiedAt: modified, metadata: transcriptMetadata(at: file))
             }
         }
@@ -110,11 +132,13 @@ final class ClaudeAPI: @unchecked Sendable {
 
     private func claimsByProject(for processes: [ClaudeProcess], sessions: [Session]) -> [String: Set<String>] {
         var claims: [String: Set<String>] = [:]
-        let liveTTYs = Set(processes.map(\.tty))
-        claimedSessionByTTY = claimedSessionByTTY.filter { liveTTYs.contains($0.key) }
+        let liveProcesses = Set(processes.map(\.identity))
+        claimedSessionByProcess = claimedSessionByProcess.filter { liveProcesses.contains($0.key) }
 
-        for process in processes.sorted(by: { $0.tty < $1.tty }) {
-            let project = process.cwd.path.replacingOccurrences(of: "/", with: "-")
+        for process in processes.sorted(by: { $0.identity < $1.identity }) {
+            let project = process.transcriptPath
+                .map { URL(fileURLWithPath: $0).deletingLastPathComponent().lastPathComponent }
+                ?? Self.encodedProjectPath(process.cwd.path)
             let candidates = sessions
                 .filter { $0.projectURL.lastPathComponent == project }
                 .sorted { $0.modifiedAt > $1.modifiedAt }
@@ -122,29 +146,92 @@ final class ClaudeAPI: @unchecked Sendable {
             guard !candidates.isEmpty else { continue }
 
             let alreadyClaimed = Set(claims[project, default: []])
-            let stable = claimedSessionByTTY[process.tty]
-            let sessionPath = (stable.flatMap { candidates.contains($0) ? $0 : nil })
+            let exact = process.transcriptPath.flatMap { candidates.contains($0) ? $0 : nil }
+            let stable = claimedSessionByProcess[process.identity]
+            let sessionPath = exact
+                ?? (stable.flatMap { candidates.contains($0) ? $0 : nil })
                 ?? candidates.first(where: { !alreadyClaimed.contains($0) })
                 ?? candidates[0]
-            claimedSessionByTTY[process.tty] = sessionPath
+            claimedSessionByProcess[process.identity] = sessionPath
             claims[project, default: []].insert(sessionPath)
         }
         return claims
     }
 
     private func discoverProcesses() throws -> [ClaudeProcess] {
-        let ps = try run("/bin/ps", arguments: ["-Ao", "pid=,tty=,command="])
-        let candidates = ps.split(whereSeparator: \.isNewline).compactMap { line -> (String, String)? in
-            let fields = line.split(maxSplits: 2, whereSeparator: \.isWhitespace)
-            guard fields.count == 3, fields[1] != "??", isClaudeCommand(String(fields[2])) else { return nil }
-            return (String(fields[0]), String(fields[1]))
+        let ps = try run("/bin/ps", arguments: ["-Ao", "pid=,ppid=,tty=,command="])
+        let rows = Self.processRows(from: ps)
+        let claudeRows = Dictionary(
+            uniqueKeysWithValues: rows.filter { Self.isClaudeCommand($0.command) }.map { ($0.pid, $0) }
+        )
+
+        var processes = registeredProcesses(liveRows: claudeRows, allRows: rows)
+        let registeredPIDs = Set(processes.map(\.pid))
+        let terminalCandidates = claudeRows.values.filter { $0.tty != "??" && !registeredPIDs.contains($0.pid) }
+        let unique = Dictionary(terminalCandidates.map { ($0.tty, $0.pid) }, uniquingKeysWith: { first, _ in first })
+        let cwdByPID = lsofCWDs(for: Array(unique.values).map(String.init))
+        processes += unique.compactMap { tty, pid in
+            guard let cwd = cwdByPID[String(pid)] else { return nil }
+            return ClaudeProcess(
+                pid: pid,
+                identity: "tty:\(tty)",
+                tty: tty,
+                cwd: URL(fileURLWithPath: cwd),
+                transcriptPath: nil,
+                permissionMode: Self.permissionMode(in: claudeRows[pid]?.command ?? ""),
+                hasRunningDescendant: Self.hasDescendant(of: pid, in: rows)
+            )
         }
-        let unique = Dictionary(candidates.map { ($0.1, $0.0) }, uniquingKeysWith: { first, _ in first })
-        let cwdByPID = lsofCWDs(for: Array(unique.values))
-        return unique.compactMap { tty, pid in
-            guard let cwd = cwdByPID[pid] else { return nil }
-            return ClaudeProcess(tty: tty, cwd: URL(fileURLWithPath: cwd), transcriptPath: nil)
+        return processes
+    }
+
+    private func registeredProcesses(
+        liveRows: [Int: ProcessRow],
+        allRows: [ProcessRow]
+    ) -> [ClaudeProcess] {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: liveSessionsURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return files.compactMap { file in
+            guard file.pathExtension == "json",
+                  let data = try? Data(contentsOf: file),
+                  let record = try? JSONDecoder().decode(LiveSessionRecord.self, from: data),
+                  let row = liveRows[record.pid]
+            else { return nil }
+
+            let transcript = transcriptURL(sessionID: record.sessionId, cwd: record.cwd)
+            return ClaudeProcess(
+                pid: record.pid,
+                identity: "pid:\(record.pid)",
+                tty: row.tty,
+                cwd: URL(fileURLWithPath: record.cwd),
+                transcriptPath: transcript.path,
+                permissionMode: Self.permissionMode(in: row.command),
+                hasRunningDescendant: Self.hasDescendant(of: record.pid, in: allRows)
+            )
         }
+    }
+
+    private func transcriptURL(sessionID: String, cwd: String) -> URL {
+        let expected = projectsURL
+            .appendingPathComponent(Self.encodedProjectPath(cwd), isDirectory: true)
+            .appendingPathComponent(sessionID)
+            .appendingPathExtension("jsonl")
+        if FileManager.default.fileExists(atPath: expected.path) { return expected }
+
+        if let projects = try? FileManager.default.contentsOfDirectory(
+            at: projectsURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ), let match = projects.lazy
+            .map({ $0.appendingPathComponent(sessionID).appendingPathExtension("jsonl") })
+            .first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return match
+        }
+        return expected
     }
 
     private func lsofCWDs(for pids: [String]) -> [String: String] {
@@ -170,26 +257,56 @@ final class ClaudeAPI: @unchecked Sendable {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return .empty }
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
-        let readLength = min(size, 128 * 1_024)
+        let readLength = min(size, 512 * 1_024)
         try? handle.seek(toOffset: size - readLength)
         guard let data = try? handle.readToEnd(),
               let transcriptText = String(data: data, encoding: .utf8) else { return .empty }
+        return Self.transcriptMetadata(from: transcriptText)
+    }
+
+    static func transcriptMetadata(from transcriptText: String) -> TranscriptMetadata {
+        let objects = transcriptText.split(separator: "\n").compactMap {
+            try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+        }
         var metadata = TranscriptMetadata.empty
-        for line in transcriptText.split(separator: "\n").reversed() {
-            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
+        var pendingTools: [String: PendingTool] = [:]
+
+        for object in objects {
+            let type = object["type"] as? String
+            let timestamp = date(in: object)
+            if type == "assistant", let blocks = contentBlocks(in: object) {
+                for block in blocks where block["type"] as? String == "tool_use" {
+                    guard let id = block["id"] as? String, let name = block["name"] as? String else { continue }
+                    pendingTools[id] = PendingTool(id: id, name: name, requestedAt: timestamp)
+                }
+            }
+            if type == "user", let blocks = contentBlocks(in: object) {
+                for block in blocks where block["type"] as? String == "tool_result" {
+                    if let id = block["tool_use_id"] as? String { pendingTools.removeValue(forKey: id) }
+                }
+            }
+            if type == "error" { metadata.hasError = true }
+        }
+
+        for object in objects.reversed() {
             if metadata.model.isEmpty { metadata.model = string(in: object, key: "model") ?? "" }
             let type = object["type"] as? String
-            if metadata.lastActivity == nil, type == "user" || type == "assistant" {
-                metadata.lastActivity = date(in: object)
+            if type == "user" || type == "assistant" {
+                if metadata.lastRole.isEmpty { metadata.lastRole = type ?? "" }
+                if metadata.lastActivity == nil { metadata.lastActivity = date(in: object) }
             }
             if metadata.prompt.isEmpty, type == "user" { metadata.prompt = clean(text(in: object)) }
-            if type == "error" { metadata.hasError = true }
             if !metadata.prompt.isEmpty, !metadata.model.isEmpty, metadata.lastActivity != nil { break }
         }
+        metadata.pendingTools = Array(pendingTools.values)
         return metadata
     }
 
-    private func text(in object: [String: Any]) -> String {
+    private static func contentBlocks(in object: [String: Any]) -> [[String: Any]]? {
+        (object["message"] as? [String: Any])?["content"] as? [[String: Any]]
+    }
+
+    private static func text(in object: [String: Any]) -> String {
         guard let message = object["message"] as? [String: Any] else { return "" }
         if let content = message["content"] as? String { return content }
         if let blocks = message["content"] as? [[String: Any]] {
@@ -198,19 +315,19 @@ final class ClaudeAPI: @unchecked Sendable {
         return ""
     }
 
-    private func string(in object: [String: Any], key: String) -> String? {
+    private static func string(in object: [String: Any], key: String) -> String? {
         if let value = object[key] as? String { return value }
         if let message = object["message"] as? [String: Any] { return message[key] as? String }
         return nil
     }
 
-    private func date(in object: [String: Any]) -> Date? {
+    private static func date(in object: [String: Any]) -> Date? {
         guard let timestamp = object["timestamp"] as? String else { return nil }
         return ISO8601DateFormatter().date(from: timestamp)
             ?? ISO8601DateFormatter.withFractionalSeconds.date(from: timestamp)
     }
 
-    private func clean(_ value: String) -> String {
+    private static func clean(_ value: String) -> String {
         let trimmed = value.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.hasPrefix("<"), !trimmed.hasPrefix("{") else { return "" }
         return trimmed
@@ -220,9 +337,103 @@ final class ClaudeAPI: @unchecked Sendable {
         value.count > 72 ? String(value.prefix(69)) + "..." : value
     }
 
-    private func isClaudeCommand(_ command: String) -> Bool {
-        guard let executable = command.split(separator: " ").first?.lowercased() else { return false }
-        return executable == "claude" || executable.hasSuffix("/claude")
+    /// `ps` joins argv with single spaces, so an executable path that contains
+    /// spaces arrives split across tokens. The desktop build lives under
+    /// "Application Support", so matching only the first token misses every
+    /// Claude Code session launched from the app. Re-join the leading tokens
+    /// that can only be fragments of that path: an absolute or flag-like token
+    /// starts the next argument.
+    static func isClaudeCommand(_ command: String) -> Bool {
+        let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let first = tokens.first else { return false }
+
+        var executable = first
+        var candidates = [first]
+        for token in tokens.dropFirst() {
+            guard first.hasPrefix("/"), !token.hasPrefix("/"), !token.hasPrefix("-") else { break }
+            executable += " " + token
+            candidates.append(executable)
+        }
+        return candidates.contains { candidate in
+            let value = candidate.lowercased()
+            return value == "claude" || value.hasSuffix("/claude")
+        }
+    }
+
+    static func liveStatus(
+        metadata: TranscriptMetadata,
+        process: ClaudeProcess?,
+        now: Date
+    ) -> AgentStatus {
+        let pending = metadata.pendingTools.sorted {
+            ($0.requestedAt ?? .distantPast) > ($1.requestedAt ?? .distantPast)
+        }
+        if pending.contains(where: { $0.name == "AskUserQuestion" }) {
+            return .waitingForInput
+        }
+
+        guard process?.hasRunningDescendant != true else { return .running }
+        let mode = process?.permissionMode ?? "default"
+        let approvalTool = pending.first { tool in
+            switch tool.name {
+            case "Bash", "ExitPlanMode":
+                return true
+            case "Edit", "Write", "NotebookEdit":
+                return mode != "acceptEdits" && mode != "bypassPermissions" && mode != "dontAsk"
+            default:
+                return false
+            }
+        }
+        if let approvalTool,
+           let requestedAt = approvalTool.requestedAt,
+           now.timeIntervalSince(requestedAt) >= approvalSettleWindow {
+            return .waitingForApproval
+        }
+
+        // Nothing is pending and no tool is executing. A transcript that ends on
+        // a settled assistant message means the turn is over and the process is
+        // just an open prompt — keeping it "running" is why finished work never
+        // cleared. A trailing user entry still means the model is generating, so
+        // only assistant endings settle, and only after the write goes quiet.
+        if pending.isEmpty,
+           metadata.lastRole == "assistant",
+           let lastActivity = metadata.lastActivity,
+           now.timeIntervalSince(lastActivity) >= idleSettleWindow {
+            return .completed
+        }
+        return .running
+    }
+
+    static func processRows(from output: String) -> [ProcessRow] {
+        output.split(whereSeparator: \.isNewline).compactMap { line in
+            let fields = line.split(maxSplits: 3, whereSeparator: \.isWhitespace)
+            guard fields.count == 4,
+                  let pid = Int(fields[0]),
+                  let parentPID = Int(fields[1])
+            else { return nil }
+            return ProcessRow(pid: pid, parentPID: parentPID, tty: String(fields[2]), command: String(fields[3]))
+        }
+    }
+
+    static func encodedProjectPath(_ path: String) -> String {
+        String(path.map { character in
+            character.isLetter || character.isNumber ? character : "-"
+        })
+    }
+
+    private static func permissionMode(in command: String) -> String {
+        let fields = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        if let field = fields.first(where: { $0.hasPrefix("--permission-mode=") }) {
+            return String(field.dropFirst("--permission-mode=".count))
+        }
+        guard let index = fields.firstIndex(of: "--permission-mode"), fields.indices.contains(index + 1) else {
+            return "default"
+        }
+        return fields[index + 1]
+    }
+
+    private static func hasDescendant(of pid: Int, in rows: [ProcessRow]) -> Bool {
+        rows.contains { $0.parentPID == pid }
     }
 
     private func run(_ executable: String, arguments: [String]) throws -> String {
@@ -242,10 +453,27 @@ final class ClaudeAPI: @unchecked Sendable {
     }
 }
 
-private struct ClaudeProcess {
+struct ClaudeProcess {
+    let pid: Int
+    let identity: String
     let tty: String
     let cwd: URL
     let transcriptPath: String?
+    let permissionMode: String
+    let hasRunningDescendant: Bool
+}
+
+struct ProcessRow {
+    let pid: Int
+    let parentPID: Int
+    let tty: String
+    let command: String
+}
+
+private struct LiveSessionRecord: Decodable {
+    let pid: Int
+    let sessionId: String
+    let cwd: String
 }
 
 private enum ClaudeError: LocalizedError {
@@ -264,12 +492,29 @@ private struct Session {
     var projectName: String { projectURL.lastPathComponent.replacingOccurrences(of: "-", with: "/") }
 }
 
-private struct TranscriptMetadata {
+struct TranscriptMetadata {
     var prompt: String
     var model: String
     var lastActivity: Date?
+    /// `type` of the transcript's final conversational entry. "assistant" means
+    /// the turn ended; "user" means the model is still producing a reply.
+    var lastRole: String
     var hasError: Bool
-    static let empty = TranscriptMetadata(prompt: "", model: "", lastActivity: nil, hasError: false)
+    var pendingTools: [PendingTool]
+    static let empty = TranscriptMetadata(
+        prompt: "",
+        model: "",
+        lastActivity: nil,
+        lastRole: "",
+        hasError: false,
+        pendingTools: []
+    )
+}
+
+struct PendingTool {
+    let id: String
+    let name: String
+    let requestedAt: Date?
 }
 
 private extension ISO8601DateFormatter {
