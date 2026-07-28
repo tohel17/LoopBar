@@ -1,6 +1,6 @@
 # LoopBar
 
-LoopBar is a native macOS menu-bar monitor for recent local Cursor composers and Codex tasks. It displays a notch-style island at the top of the active screen and is deliberately read-only: it observes local application state, but never sends prompts or changes Cursor/Codex data.
+LoopBar is a native macOS menu-bar monitor for recent local Cursor composers, Codex tasks, and Claude Code sessions. It displays a notch-style island at the top of the active screen and is deliberately read-only: it observes local application state, but never sends prompts or changes coding-tool data.
 
 ![Architecture](docs/architecture.svg)
 
@@ -13,6 +13,8 @@ swift run LoopBar
 ```
 
 Click the island to expand it. Click an agent row to open its source application. The gear button opens settings; the refresh button performs an immediate refresh; the power button quits LoopBar.
+
+On first launch, LoopBar presents a three-step setup assistant. It explains the local, read-only workflow and lets the user independently enable or disable Cursor, Codex, and Claude Code monitoring before monitoring begins. The choices persist in `UserDefaults` and remain editable in Settings; the assistant does not appear again after completion.
 
 The app version has one source of truth: `Sources/Resources/version.txt`. After changing it, rebuild LoopBar. Before packaging the `.app`, synchronize its Info.plist:
 
@@ -111,6 +113,7 @@ The proposed Claude Code source architecture is documented in
 - `Sources/App/LoopBarApp.swift` — executable entry point; creates the store, view model, and panel controller.
 - `Sources/App/AppDelegate.swift` — application lifecycle, notification delegate, and notification click handling.
 - `Sources/Controllers/IslandPanelController.swift` — owns the borderless `NSPanel`, hosts SwiftUI, tracks screen changes, and resizes/repositions the panel. Width changes animate horizontally while vertical notch alignment remains fixed.
+- `Sources/Controllers/OnboardingWindowController.swift` — presents the one-time first-launch setup assistant in a centered native window.
 - `Sources/Geometry/IslandGeometry.swift` — calculates the active screen and notch-aligned panel frame.
 - `Sources/ViewModels/IslandViewModel.swift` — owns compact/expanded chrome, selected content, and store-driven loading/error presentation. It does not own agent data.
 - `Sources/Models/Agent.swift` — agent value model, sources, statuses, labels, icons, terminal state, and attention state.
@@ -127,10 +130,11 @@ The proposed Claude Code source architecture is documented in
 - `Sources/Services/CodexProcessDiscovery.swift` — read-only `ps`/`lsof` discovery that maps terminal-attached Codex processes to live rollout files.
 - `Sources/Services/AgentOpener.swift` — opens Cursor or Codex when a row or notification is clicked.
 - `Sources/Services/NotificationService.swift` — posts status-transition notifications with sound in packaged `.app` builds and uses an `osascript` notification fallback for raw SwiftPM/debug runs.
-- `Sources/Services/Settings.swift` — persists refresh interval and Cursor/Codex source toggles in `UserDefaults`.
+- `Sources/Services/Settings.swift` — persists onboarding completion, refresh and notification preferences, and source toggles in `UserDefaults`.
 - `Sources/Utilities/IslandMetrics.swift` — compact/expanded widths, heights, list sizing, and settings sizing.
 - `Sources/Utilities/AgentElapsedText.swift` — elapsed-time formatting for expanded rows.
 - `Sources/Views/IslandRootView.swift` — top-level SwiftUI sizing wrapper.
+- `Sources/Views/OnboardingView.swift` — welcome, workflow explanation, source selection, and notification preference screens.
 - `Sources/Views/MenuPanelView.swift` — black island shape, header/body/footer composition, dividers, and footer actions.
 - `Sources/Views/CompactIslandView.swift` — grouped compact counts, directional gradients, and the full-width toggle hit area.
 - `Sources/Views/ExpandedIslandView.swift` — agents list, settings body, logs placeholder, and error/empty states.

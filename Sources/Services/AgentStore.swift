@@ -16,6 +16,7 @@ final class AgentStore: ObservableObject {
     private let cursorFileWatcher = CursorFileWatcher()
     private let notificationService = NotificationService()
     private var pollingTask: Task<Void, Never>?
+    private var hasStartedMonitoring = false
     private var isRefreshing = false
     private var refreshPending = false
     private var hasLoadedInitialSnapshot = false
@@ -24,14 +25,23 @@ final class AgentStore: ObservableObject {
     private var pendingCodexStatuses: [String: (status: AgentStatus, count: Int)] = [:]
 
     init() {
-        notificationService.requestAuthorization()
+        guard settings.hasCompletedOnboarding else { return }
+        if settings.notificationsEnabled {
+            notificationService.requestAuthorization()
+        }
+        startMonitoring()
+        restartPolling()
+    }
+
+    private func startMonitoring() {
+        guard !hasStartedMonitoring else { return }
+        hasStartedMonitoring = true
         cursorFileWatcher.start { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.settings.cursorEnabled else { return }
                 await self.refresh()
             }
         }
-        restartPolling()
     }
 
     deinit {
@@ -118,8 +128,18 @@ final class AgentStore: ObservableObject {
     }
 
     func updateSettings() {
+        guard settings.hasCompletedOnboarding else { return }
+        if settings.notificationsEnabled {
+            notificationService.requestAuthorization()
+        }
+        startMonitoring()
         restartPolling()
         Task { await refresh() }
+    }
+
+    func completeOnboarding() {
+        settings.completeOnboarding()
+        updateSettings()
     }
 
     private func sortAgents(_ lhs: CursorAgent, _ rhs: CursorAgent) -> Bool {

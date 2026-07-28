@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let store = AgentStore()
     private(set) lazy var viewModel = IslandViewModel(store: store)
     private var islandController: IslandPanelController?
+    private var onboardingController: OnboardingWindowController?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
@@ -30,10 +31,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         NSApp.setActivationPolicy(.accessory)
         islandController = IslandPanelController(store: store, viewModel: viewModel)
+        showOnboardingIfNeeded()
 
         if CommandLine.arguments.contains("--test-notification") {
             sendTestNotification()
         }
+    }
+
+    private func showOnboardingIfNeeded() {
+        guard !store.settings.hasCompletedOnboarding else { return }
+
+        let controller = OnboardingWindowController(settings: store.settings) { [weak self] in
+            guard let self else { return }
+            self.store.completeOnboarding()
+            self.onboardingController?.close()
+            self.onboardingController = nil
+        }
+        onboardingController = controller
+        controller.present()
     }
 
     /// One-shot banner so we can verify the LEFT app icon without waiting for an agent.
