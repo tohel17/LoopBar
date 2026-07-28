@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Observable store for event-triggered and periodically reconciled agent data.
@@ -8,6 +9,9 @@ final class AgentStore: ObservableObject {
     @Published private(set) var agents: [CursorAgent] = []
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var notificationTestResult: NotificationService.TestResult?
+    @Published private(set) var isSendingTestNotification = false
+    @Published private(set) var notificationPermissionStatus: NotificationService.PermissionStatus = .checking
     @Published var settings = Settings()
 
     private let cursorAPI = CursorAPI()
@@ -22,9 +26,9 @@ final class AgentStore: ObservableObject {
     private var lastStatuses: [String: AgentStatus] = [:]
     private var lastPublishedAgents: [String: CursorAgent] = [:]
     private var pendingCodexStatuses: [String: (status: AgentStatus, count: Int)] = [:]
+    private var notificationFeedbackTask: Task<Void, Never>?
 
     init() {
-        notificationService.requestAuthorization()
         cursorFileWatcher.start { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.settings.cursorEnabled else { return }
@@ -34,8 +38,16 @@ final class AgentStore: ObservableObject {
         restartPolling()
     }
 
+    func refreshNotificationAuthorization() {
+        Task { [weak self] in
+            guard let self else { return }
+            notificationPermissionStatus = await notificationService.refreshAuthorizationStatus()
+        }
+    }
+
     deinit {
         pollingTask?.cancel()
+        notificationFeedbackTask?.cancel()
         cursorFileWatcher.stop()
     }
 
@@ -120,6 +132,33 @@ final class AgentStore: ObservableObject {
     func updateSettings() {
         restartPolling()
         Task { await refresh() }
+    }
+
+    func sendTestNotification() {
+        notificationFeedbackTask?.cancel()
+        notificationTestResult = nil
+        isSendingTestNotification = true
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await notificationService.sendTestNotification()
+            notificationTestResult = result
+            isSendingTestNotification = false
+            notificationPermissionStatus = await notificationService.refreshAuthorizationStatus()
+
+            guard result.isSuccess else { return }
+            notificationFeedbackTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                self?.notificationTestResult = nil
+            }
+        }
+    }
+
+    func openNotificationSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+        ) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func sortAgents(_ lhs: CursorAgent, _ rhs: CursorAgent) -> Bool {
