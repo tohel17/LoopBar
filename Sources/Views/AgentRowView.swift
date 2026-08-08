@@ -67,7 +67,7 @@ struct AgentRowView: View {
             switch agent.source {
             case .cursor: .purple
             case .codex: .blue
-            case .claude: .orange
+            case .claude: .claudeRunning
             }
         case .queued: .yellow
         case .waitingForApproval: .orange

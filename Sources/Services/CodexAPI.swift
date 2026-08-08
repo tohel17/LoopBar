@@ -30,6 +30,7 @@ struct CodexAPI {
                 COALESCE(NULLIF(cwd, ''), '') AS cwd,
                 COALESCE(NULLIF(git_branch, ''), '') AS git_branch,
                 COALESCE(source, '') AS source,
+                COALESCE(approval_mode, '') AS approval_mode,
                 rollout_path,
                 COALESCE(NULLIF(recency_at_ms, 0), NULLIF(updated_at_ms, 0), updated_at * 1000) AS updated_at_ms
             FROM threads
@@ -103,75 +104,133 @@ struct CodexAPI {
         canDetermineProcessAbsence: Bool,
         isRecentlyActive: Bool
     ) -> AgentStatus {
-        let tail = rolloutTail(at: thread.rolloutPath)
-        let semanticStatus = status(fromRollout: tail, isRecentlyUpdated: false)
+        let semanticStatus = status(
+            fromRolloutAt: thread.rolloutPath,
+            approvalMode: thread.approvalMode
+        )
+        return reconciledStatus(
+            semanticStatus: semanticStatus,
+            isProcessLive: isProcessLive,
+            canDetermineProcessAbsence: canDetermineProcessAbsence,
+            isRecentlyActive: isRecentlyActive
+        )
+    }
 
+    static func reconciledStatus(
+        semanticStatus: AgentStatus,
+        isProcessLive: Bool,
+        canDetermineProcessAbsence: Bool,
+        isRecentlyActive: Bool
+    ) -> AgentStatus {
         if isProcessLive {
             return semanticStatus == .unknown ? .running : semanticStatus
         }
-        if semanticStatus == .completed {
-            return .completed
+        if semanticStatus.isTerminal {
+            return semanticStatus
         }
         if canDetermineProcessAbsence {
             return .unknown
         }
-        if semanticStatus.needsAttention {
+        // Desktop/app-server tasks are not terminal-attached processes. Their
+        // task_started/task_complete lifecycle is the authoritative liveness
+        // signal, including while a local command is quiet for several minutes.
+        if semanticStatus != .unknown {
             return semanticStatus
         }
         return isRecentlyActive ? .running : .unknown
     }
 
-    /// Derives task state from explicit rollout lifecycle records. Database
-    /// recency is only a legacy fallback: hybrid Codex updates thread metadata
-    /// for background activity that does not mean an agent is running.
-    static func status(fromRollout tail: String, isRecentlyUpdated: Bool) -> AgentStatus {
-        let lastTaskStarted = latestIndex(of: "\"type\":\"task_started\"", in: tail) ?? -1
-        let lastTaskComplete = latestIndex(of: "\"type\":\"task_complete\"", in: tail) ?? -1
-        // Approval records can remain in the rollout after the agent resumes.
-        // Treat later reasoning/messages/tool output as a newer checkpoint so
-        // a stale approval cannot mask active work as "Needs approval".
-        let lastActivity = [
-            "\"type\":\"function_call\"",
-            "\"type\":\"function_call_output\"",
-            "\"type\":\"custom_tool_call\"",
-            "\"type\":\"custom_tool_call_output\"",
-            "\"type\":\"agent_message\"",
-            "\"type\":\"agent_reasoning\"",
-            "\"type\":\"reasoning\""
-        ].compactMap { latestIndex(of: $0, in: tail) }.max() ?? -1
-        let checkpoint = max(lastTaskStarted, lastTaskComplete, lastActivity)
-        let lastApproval = [
-            "\"type\":\"execCommandApproval\"",
-            "\"type\":\"applyPatchApproval\"",
-            "\"type\":\"permissions_request_approval\"",
-            "\"type\":\"command_execution_request_approval\"",
-            "\"type\":\"file_change_request_approval\""
-        ].compactMap { latestIndex(of: $0, in: tail) }.max() ?? -1
-        let lastUserInput = [
-            "has_pending_input=true",
-            "\"type\":\"tool_request_user_input\"",
-            "\"type\":\"request_user_input\""
-        ].compactMap { latestIndex(of: $0, in: tail) }.max() ?? -1
-        let lastBlocked = [
-            "\"status\":\"blocked\"",
-            "\"type\":\"goal_updated\",\"status\":\"blocked\""
-        ].compactMap { latestIndex(of: $0, in: tail) }.max() ?? -1
-        if lastApproval > checkpoint {
+    /// Derives task state from structured rollout records. Pending approval and
+    /// input calls remain unresolved until a matching call_id output is written.
+    /// Parsing records avoids matching status-looking strings inside messages or
+    /// command output.
+    static func status(
+        fromRollout rollout: String,
+        isRecentlyUpdated: Bool,
+        approvalMode: String = "on-request",
+        fallbackLifecycle: AgentStatus? = nil
+    ) -> AgentStatus {
+        var lifecycle = fallbackLifecycle ?? .unknown
+        var approvalCalls = Set<String>()
+        var inputCalls = Set<String>()
+        var legacyApprovalPending = false
+        var legacyInputPending = false
+        var blocked = false
+        let decoder = JSONDecoder()
+
+        for line in rollout.split(whereSeparator: \.isNewline) {
+            guard let record = try? decoder.decode(
+                RolloutRecord.self,
+                from: Data(line.utf8)
+            ) else {
+                continue
+            }
+
+            switch record.payload.type {
+            case "task_started":
+                lifecycle = .running
+                approvalCalls.removeAll()
+                inputCalls.removeAll()
+                legacyApprovalPending = false
+                legacyInputPending = false
+                blocked = false
+            case "task_complete":
+                lifecycle = .completed
+                approvalCalls.removeAll()
+                inputCalls.removeAll()
+                legacyApprovalPending = false
+                legacyInputPending = false
+                blocked = false
+            case "turn_aborted":
+                lifecycle = .cancelled
+                approvalCalls.removeAll()
+                inputCalls.removeAll()
+                legacyApprovalPending = false
+                legacyInputPending = false
+                blocked = false
+            case "execCommandApproval", "applyPatchApproval",
+                 "permissions_request_approval",
+                 "command_execution_request_approval",
+                 "file_change_request_approval":
+                legacyApprovalPending = true
+            case "tool_request_user_input", "request_user_input":
+                legacyInputPending = true
+            case "goal_updated":
+                blocked = record.payload.status?.lowercased() == "blocked"
+            case "user_message":
+                legacyInputPending = false
+            case "function_call_output", "custom_tool_call_output":
+                if let callID = record.payload.callID {
+                    approvalCalls.remove(callID)
+                    inputCalls.remove(callID)
+                }
+                legacyApprovalPending = false
+                legacyInputPending = false
+            case "function_call", "custom_tool_call":
+                guard let callID = record.payload.callID else { break }
+                if Self.isApprovalRequest(record.payload, approvalMode: approvalMode) {
+                    approvalCalls.insert(callID)
+                }
+                if Self.isInputRequest(record.payload) {
+                    inputCalls.insert(callID)
+                }
+            default:
+                if record.payload.status?.lowercased() == "blocked" {
+                    blocked = true
+                }
+            }
+        }
+
+        if !approvalCalls.isEmpty || legacyApprovalPending {
             return .waitingForApproval
         }
-        if lastUserInput > checkpoint {
+        if !inputCalls.isEmpty || legacyInputPending {
             return .waitingForInput
         }
-        if lastBlocked > checkpoint {
+        if blocked {
             return .blocked
         }
-        if lastTaskComplete > lastTaskStarted {
-            return .completed
-        }
-        if lastTaskStarted >= 0 {
-            return .running
-        }
-        return isRecentlyUpdated ? .running : .unknown
+        return lifecycle == .unknown && isRecentlyUpdated ? .running : lifecycle
     }
 
     private static func statusText(for thread: LocalThread, status: AgentStatus, updatedAt: Date) -> String {
@@ -196,29 +255,139 @@ struct CodexAPI {
         }
     }
 
-    private static func rolloutTail(at path: String) -> String {
+    static func status(
+        fromRolloutAt path: String,
+        approvalMode: String,
+        isRecentlyUpdated: Bool = false
+    ) -> AgentStatus {
+        let tail = rolloutTail(at: path)
+        let fallbackLifecycle = lifecycleStatus(in: tail.text) == nil
+            ? latestLifecycle(at: path, beforeOffset: tail.startOffset)
+            : nil
+        return status(
+            fromRollout: tail.text,
+            isRecentlyUpdated: isRecentlyUpdated,
+            approvalMode: approvalMode,
+            fallbackLifecycle: fallbackLifecycle
+        )
+    }
+
+    private static func rolloutTail(at path: String) -> RolloutTail {
         guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else {
-            return ""
+            return RolloutTail(text: "", startOffset: 0)
         }
         do {
             let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
             defer { try? handle.close() }
             let fileSize = try handle.seekToEnd()
-            // Long hybrid turns can exceed the old 96 KiB window before the
-            // next poll. Retain enough history to keep the task_started marker.
             let tailSize: UInt64 = 1_024 * 1_024
-            try handle.seek(toOffset: fileSize > tailSize ? fileSize - tailSize : 0)
-            return String(data: handle.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let startOffset = fileSize > tailSize ? fileSize - tailSize : 0
+            try handle.seek(toOffset: startOffset)
+            let text = String(
+                decoding: handle.readDataToEndOfFile(),
+                as: UTF8.self
+            )
+            return RolloutTail(text: text, startOffset: startOffset)
         } catch {
-            return ""
+            return RolloutTail(text: "", startOffset: 0)
         }
     }
 
+    /// Finds the latest lifecycle marker preceding the bounded rollout tail.
+    /// This keeps long, quiet command turns active without rereading a many-MB
+    /// transcript on every one-second poll.
+    private static func latestLifecycle(
+        at path: String,
+        beforeOffset: UInt64
+    ) -> AgentStatus? {
+        guard beforeOffset > 0,
+              let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        let chunkSize: UInt64 = 256 * 1_024
+        var endOffset = beforeOffset
+        var laterPrefix = Data()
+
+        while endOffset > 0 {
+            let startOffset = endOffset > chunkSize ? endOffset - chunkSize : 0
+            do {
+                try handle.seek(toOffset: startOffset)
+                var data = handle.readData(ofLength: Int(endOffset - startOffset))
+                data.append(laterPrefix)
+                let text = String(decoding: data, as: UTF8.self)
+                if let status = lifecycleStatus(in: text) {
+                    return status
+                }
+                laterPrefix = data.prefix(256)
+                endOffset = startOffset
+            } catch {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private static func lifecycleStatus(in text: String) -> AgentStatus? {
+        let markers: [(String, AgentStatus)] = [
+            ("\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"", .running),
+            ("\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\"", .completed),
+            ("\"type\":\"event_msg\",\"payload\":{\"type\":\"turn_aborted\"", .cancelled)
+        ]
+        return markers
+            .compactMap { marker -> (Int, AgentStatus)? in
+                guard let index = latestIndex(of: marker.0, in: text) else { return nil }
+                return (index, marker.1)
+            }
+            .max { $0.0 < $1.0 }?
+            .1
+    }
+
+    private static func isApprovalRequest(
+        _ payload: RolloutPayload,
+        approvalMode: String
+    ) -> Bool {
+        guard approvalMode.lowercased() != "never" else { return false }
+        let content = (payload.arguments ?? payload.input ?? "").lowercased()
+        return content.contains("sandbox_permissions")
+            && content.contains("require_escalated")
+    }
+
+    private static func isInputRequest(_ payload: RolloutPayload) -> Bool {
+        let name = payload.name?.lowercased()
+        return name == "request_user_input" || name == "tool_request_user_input"
+    }
+
     private static func latestIndex(of needle: String, in haystack: String) -> Int? {
-        guard let range = haystack.range(of: needle, options: [.caseInsensitive, .backwards]) else {
+        guard let range = haystack.range(of: needle, options: [.backwards]) else {
             return nil
         }
         return haystack.distance(from: haystack.startIndex, to: range.lowerBound)
+    }
+
+    private struct RolloutTail {
+        let text: String
+        let startOffset: UInt64
+    }
+
+    private struct RolloutRecord: Decodable {
+        let type: String
+        let payload: RolloutPayload
+    }
+
+    private struct RolloutPayload: Decodable {
+        let type: String
+        let name: String?
+        let callID: String?
+        let arguments: String?
+        let input: String?
+        let status: String?
+
+        enum CodingKeys: String, CodingKey {
+            case type, name, arguments, input, status
+            case callID = "call_id"
+        }
     }
 
     private struct LocalThread: Decodable {
@@ -229,6 +398,7 @@ struct CodexAPI {
         let cwd: String
         let gitBranch: String
         let source: String
+        let approvalMode: String
         let rolloutPath: String
         let updatedAtMilliseconds: Double
 
@@ -240,6 +410,7 @@ struct CodexAPI {
         enum CodingKeys: String, CodingKey {
             case id, title, preview, detail, cwd, source
             case gitBranch = "git_branch"
+            case approvalMode = "approval_mode"
             case rolloutPath = "rollout_path"
             case updatedAtMilliseconds = "updated_at_ms"
         }

@@ -1,3 +1,5 @@
+import AppKit
+import Combine
 import Foundation
 
 /// Observable store for event-triggered and periodically reconciled agent data.
@@ -8,6 +10,9 @@ final class AgentStore: ObservableObject {
     @Published private(set) var agents: [CursorAgent] = []
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var notificationTestResult: NotificationService.TestResult?
+    @Published private(set) var isSendingTestNotification = false
+    @Published private(set) var notificationPermissionStatus: NotificationService.PermissionStatus = .checking
     @Published var settings = Settings()
 
     private let cursorAPI = CursorAPI()
@@ -21,14 +26,18 @@ final class AgentStore: ObservableObject {
     private var refreshPending = false
     private var hasLoadedInitialSnapshot = false
     private var lastStatuses: [String: AgentStatus] = [:]
-    private var lastPublishedAgents: [String: CursorAgent] = [:]
-    private var pendingCodexStatuses: [String: (status: AgentStatus, count: Int)] = [:]
+    private var notificationFeedbackTask: Task<Void, Never>?
+    private var settingsObserver: AnyCancellable?
 
     init() {
-        guard settings.hasCompletedOnboarding else { return }
-        if settings.notificationsEnabled {
-            notificationService.requestAuthorization()
+        // `settings` is a nested ObservableObject, so mutating one of its
+        // properties never reaches AgentStore's own publisher. Without this
+        // forwarding, controls bound through `$store.settings.…` keep rendering
+        // the previous value even though the write landed.
+        settingsObserver = settings.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
         }
+        guard settings.hasCompletedOnboarding else { return }
         startMonitoring()
         restartPolling()
     }
@@ -44,8 +53,16 @@ final class AgentStore: ObservableObject {
         }
     }
 
+    func refreshNotificationAuthorization() {
+        Task { [weak self] in
+            guard let self else { return }
+            notificationPermissionStatus = await notificationService.refreshAuthorizationStatus()
+        }
+    }
+
     deinit {
         pollingTask?.cancel()
+        notificationFeedbackTask?.cancel()
         cursorFileWatcher.stop()
     }
 
@@ -115,11 +132,10 @@ final class AgentStore: ObservableObject {
         lastUpdated = .now
 
         let sortedIncoming = incoming.sorted(by: sortAgents)
-        let stabilizedIncoming = stabilizeTransientCodexStatuses(sortedIncoming)
-        notifyStatusTransitions(for: stabilizedIncoming)
+        notifyStatusTransitions(for: sortedIncoming)
 
-        if !stabilizedIncoming.isEmpty {
-            agents = stabilizedIncoming
+        if !sortedIncoming.isEmpty {
+            agents = sortedIncoming
             errorMessage = errors.isEmpty ? nil : errors.joined(separator: " · ")
         } else {
             agents = []
@@ -129,9 +145,6 @@ final class AgentStore: ObservableObject {
 
     func updateSettings() {
         guard settings.hasCompletedOnboarding else { return }
-        if settings.notificationsEnabled {
-            notificationService.requestAuthorization()
-        }
         startMonitoring()
         restartPolling()
         Task { await refresh() }
@@ -140,6 +153,34 @@ final class AgentStore: ObservableObject {
     func completeOnboarding() {
         settings.completeOnboarding()
         updateSettings()
+        refreshNotificationAuthorization()
+    }
+
+    func sendTestNotification() {
+        notificationFeedbackTask?.cancel()
+        notificationTestResult = nil
+        isSendingTestNotification = true
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await notificationService.sendTestNotification()
+            notificationTestResult = result
+            isSendingTestNotification = false
+            notificationPermissionStatus = await notificationService.refreshAuthorizationStatus()
+
+            guard result.isSuccess else { return }
+            notificationFeedbackTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                self?.notificationTestResult = nil
+            }
+        }
+    }
+
+    func openNotificationSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+        ) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func sortAgents(_ lhs: CursorAgent, _ rhs: CursorAgent) -> Bool {
@@ -185,7 +226,6 @@ final class AgentStore: ObservableObject {
         let incomingStatuses = Dictionary(uniqueKeysWithValues: incoming.map { ($0.id, $0.status) })
         defer {
             lastStatuses = incomingStatuses
-            lastPublishedAgents = Dictionary(uniqueKeysWithValues: incoming.map { ($0.id, $0) })
             hasLoadedInitialSnapshot = true
         }
 
@@ -202,29 +242,4 @@ final class AgentStore: ObservableObject {
         }
     }
 
-    /// Codex can briefly persist an intermediate waiting marker while a tool
-    /// call is still active. Require two consecutive polls before replacing a
-    /// published running state with an attention state, avoiding UI flicker and
-    /// false notifications without delaying real waiting states for long.
-    private func stabilizeTransientCodexStatuses(_ incoming: [CursorAgent]) -> [CursorAgent] {
-        incoming.map { agent in
-            guard agent.source == .codex,
-                  let previousStatus = lastStatuses[agent.id],
-                  previousStatus == .running,
-                  agent.status.needsAttention else {
-                pendingCodexStatuses.removeValue(forKey: agent.id)
-                return agent
-            }
-
-            let candidate = pendingCodexStatuses[agent.id]
-            let nextCount = candidate?.status == agent.status ? (candidate?.count ?? 0) + 1 : 1
-            pendingCodexStatuses[agent.id] = (agent.status, nextCount)
-
-            guard nextCount < 2, let previousAgent = lastPublishedAgents[agent.id] else {
-                pendingCodexStatuses.removeValue(forKey: agent.id)
-                return agent
-            }
-            return previousAgent
-        }
-    }
 }

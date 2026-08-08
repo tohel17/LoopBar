@@ -10,6 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var onboardingController: OnboardingWindowController?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Register the bundle before anything contacts UserNotifications.
+        // Notification Center snapshots the source icon on first contact.
+        registerBundleIcon()
+
         guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
 
         let currentPID = ProcessInfo.processInfo.processIdentifier
@@ -25,7 +29,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         CursorHookCleanup.removeLegacyInstallation()
-        registerBundleIcon()
         if NotificationService.canUseUserNotifications {
             UNUserNotificationCenter.current().delegate = self
         }
@@ -33,9 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         islandController = IslandPanelController(store: store, viewModel: viewModel)
         showOnboardingIfNeeded()
 
-        if CommandLine.arguments.contains("--test-notification") {
-            sendTestNotification()
-        }
+        // Read the current setting without prompting at launch. Permission is
+        // requested in context when the user chooses Test notification.
+        store.refreshNotificationAuthorization()
     }
 
     private func showOnboardingIfNeeded() {
@@ -49,21 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         onboardingController = controller
         controller.present()
-    }
-
-    /// One-shot banner so we can verify the LEFT app icon without waiting for an agent.
-    private func sendTestNotification() {
-        guard NotificationService.canUseUserNotifications else { return }
-        let content = UNMutableNotificationContent()
-        content.title = "LoopBar icon check"
-        content.body = "Left icon should be the LoopBar logo (not the grid placeholder)."
-        content.sound = .default
-        let request = UNNotificationRequest(
-            identifier: "loopbar.test-icon.\(UUID().uuidString)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request)
     }
 
     /// Ensure Launch Services / Notification Center can resolve LoopBar's logo

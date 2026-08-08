@@ -30,13 +30,20 @@ final class IslandViewModel: ObservableObject {
     /// Toggle between compact and expanded chrome.
     func toggleExpanded() {
         if state.isExpandedChrome {
-            collapseTask?.cancel()
-            collapseTask = nil
-            applyState(.compact)
-            content = .agents
+            collapse()
         } else {
             applyState(derivedExpandedState())
         }
+    }
+
+    /// Collapse from any expanded-like state and restore the default content.
+    /// Safe to call for outside-click handling even if the island is compact.
+    func collapse() {
+        collapseTask?.cancel()
+        collapseTask = nil
+        guard state.isExpandedChrome else { return }
+        applyState(.compact)
+        content = .agents
     }
 
     /// Hover never expands. While expanded, cancel collapse on enter and
@@ -60,8 +67,7 @@ final class IslandViewModel: ObservableObject {
             let nanoseconds = UInt64(Self.collapseDelaySeconds * 1_000_000_000)
             try? await Task.sleep(nanoseconds: nanoseconds)
             guard let self, !Task.isCancelled, !self.isHovered else { return }
-            self.applyState(.compact)
-            self.content = .agents
+            self.collapse()
         }
     }
 

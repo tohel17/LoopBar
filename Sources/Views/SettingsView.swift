@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -27,6 +28,9 @@ struct SettingsView: View {
                 }
             }
         }
+        // Both layouts expose the interval picker; restart polling so a new
+        // interval applies now instead of after the in-flight sleep elapses.
+        .onChange(of: store.settings.refreshSeconds) { _, _ in store.updateSettings() }
         .padding(.horizontal, isEmbedded ? 38 : 16)
         .padding(.vertical, isEmbedded ? 22 : 16)
         .frame(width: isEmbedded ? nil : 420)
@@ -41,6 +45,24 @@ struct SettingsView: View {
     }
 
     private var embeddedContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView(.vertical, showsIndicators: false) {
+                embeddedSettingsSections
+                    .padding(.bottom, 2)
+            }
+
+            Button(action: finish) {
+                Text("Done")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var embeddedSettingsSections: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Image(systemName: "cursorarrow.rays")
@@ -81,15 +103,6 @@ struct SettingsView: View {
             sourceToggles
 
             notificationPreferences
-
-            Button(action: finish) {
-                Text("Done")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            }
-            .buttonStyle(.plain)
         }
     }
 
@@ -127,6 +140,8 @@ struct SettingsView: View {
                     Toggle("Needs-attention notifications", isOn: $store.settings.attentionNotifications)
                     Toggle("Failure notifications", isOn: $store.settings.failureNotifications)
                 }
+                permissionGuidance(embedded: false)
+                formTestNotificationButton
             }
             if !store.settings.notificationsEnabled {
                 Text("Notification options are hidden while notifications are disabled.")
@@ -135,6 +150,10 @@ struct SettingsView: View {
             }
         }
         .toggleStyle(.switch)
+        .onAppear { store.refreshNotificationAuthorization() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.refreshNotificationAuthorization()
+        }
     }
 
     private var sourceToggles: some View {
@@ -184,6 +203,8 @@ struct SettingsView: View {
             .contentShape(Rectangle())
 
             if store.settings.notificationsEnabled {
+                permissionGuidance(embedded: true)
+
                 DisclosureGroup("Notification types", isExpanded: $notificationsExpanded) {
                     VStack(alignment: .leading, spacing: 6) {
                         preferenceToggle(
@@ -209,6 +230,8 @@ struct SettingsView: View {
                         )
                     }
                 }
+
+                embeddedTestNotificationButton
             } else {
                 Text("Notification options are hidden while disabled.")
                     .font(.caption2)
@@ -216,6 +239,164 @@ struct SettingsView: View {
             }
         }
         .toggleStyle(.switch)
+        .onAppear { store.refreshNotificationAuthorization() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.refreshNotificationAuthorization()
+        }
+    }
+
+    private var formTestNotificationButton: some View {
+        Button {
+            store.sendTestNotification()
+        } label: {
+            HStack {
+                Label("Test notification", systemImage: "bell.badge")
+                Spacer()
+                notificationTestAccessory
+            }
+        }
+        .disabled(store.isSendingTestNotification)
+    }
+
+    private var embeddedTestNotificationButton: some View {
+        Button {
+            store.sendTestNotification()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "bell.badge.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 28, height: 28)
+                    .background(.blue.opacity(0.16), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Test notification")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Send a sample LoopBar alert")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.48))
+                }
+
+                Spacer(minLength: 8)
+                notificationTestAccessory
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(store.isSendingTestNotification)
+    }
+
+    @ViewBuilder
+    private var notificationTestAccessory: some View {
+        if store.isSendingTestNotification {
+            ProgressView()
+                .controlSize(.small)
+        } else if store.notificationTestResult?.isSuccess == true {
+            Label("Sent", systemImage: "checkmark.circle.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.green)
+        } else {
+            Text("Send")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.blue)
+        }
+    }
+
+    @ViewBuilder
+    private func permissionGuidance(embedded: Bool) -> some View {
+        switch store.notificationPermissionStatus {
+        case .denied:
+            permissionCard(
+                title: "Notifications are turned off",
+                message: "Allow LoopBar notifications in System Settings to receive agent updates.",
+                symbol: "bell.slash.fill",
+                color: .orange,
+                embedded: embedded,
+                showsSettingsButton: true
+            )
+        case .alertsDisabled:
+            permissionCard(
+                title: "Notification banners are off",
+                message: "Choose Banners for LoopBar in System Settings so alerts appear on screen.",
+                symbol: "rectangle.on.rectangle.slash.fill",
+                color: .orange,
+                embedded: embedded,
+                showsSettingsButton: true
+            )
+        case .notRequested:
+            permissionCard(
+                title: "Notification permission required",
+                message: "Choose Test notification and allow alerts when macOS asks.",
+                symbol: "bell.badge.fill",
+                color: .blue,
+                embedded: embedded,
+                showsSettingsButton: false
+            )
+        case let .unavailable(message):
+            permissionCard(
+                title: "Notifications unavailable",
+                message: message,
+                symbol: "exclamationmark.triangle.fill",
+                color: .orange,
+                embedded: embedded,
+                showsSettingsButton: false
+            )
+        case .checking, .allowed:
+            EmptyView()
+        }
+
+        if case let .failed(message) = store.notificationTestResult {
+            permissionCard(
+                title: "Notification could not be sent",
+                message: message,
+                symbol: "exclamationmark.triangle.fill",
+                color: .red,
+                embedded: embedded,
+                showsSettingsButton: false
+            )
+        }
+    }
+
+    private func permissionCard(
+        title: String,
+        message: String,
+        symbol: String,
+        color: Color,
+        embedded: Bool,
+        showsSettingsButton: Bool
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 26, height: 26)
+                .background(color.opacity(0.16), in: Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(embedded ? .white.opacity(0.56) : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if showsSettingsButton {
+                    Button("Open System Settings") {
+                        store.openNotificationSettings()
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.link)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(color.opacity(embedded ? 0.09 : 0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(color.opacity(0.2), lineWidth: 1)
+        }
     }
 
     private func preferenceToggle(

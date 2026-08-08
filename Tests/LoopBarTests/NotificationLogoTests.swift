@@ -26,4 +26,14 @@ final class NotificationLogoTests: XCTestCase {
         let missing = URL(fileURLWithPath: "/tmp/loopbar-missing-\(UUID().uuidString).png")
         XCTAssertNil(NotificationLogo.makeAttachment(from: missing))
     }
+
+    @MainActor
+    func testNotificationServiceBuildsAttachmentFreeTestContent() {
+        let content = NotificationService.makeTestContent()
+
+        XCTAssertEqual(content.title, "LoopBar notification test")
+        XCTAssertFalse(content.body.isEmpty)
+        XCTAssertNotNil(content.sound)
+        XCTAssertTrue(content.attachments.isEmpty, "The app logo belongs in the left source-icon slot")
+    }
 }

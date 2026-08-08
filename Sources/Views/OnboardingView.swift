@@ -175,7 +175,7 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Notify me when work finishes or needs attention")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("macOS will ask for notification permission after setup.")
+                    Text("Test notifications in Settings later to allow them in macOS.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

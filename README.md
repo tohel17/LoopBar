@@ -43,7 +43,7 @@ The left running accent is source-aware:
 
 Green is reserved for completed agents in expanded rows. The right attention accent is status-aware: yellow for approval/input, orange for blocked, and red for failed. Large soft radial gradients begin at the island's upper-left and upper-right corners and use these same accents. The empty center remains clear around the notch.
 
-The entire compact header is one click target, including the empty notch-safe space between the counters. Clicking anywhere in it toggles expanded mode.
+The entire compact header is one click target, including the empty notch-safe space between the counters. Clicking anywhere in it toggles expanded mode. While expanded, clicking anywhere outside LoopBar immediately returns it to compact mode without consuming the click; leaving the pointer outside still applies the existing two-second auto-collapse delay.
 
 ### Expanded / maximized mode
 
@@ -143,7 +143,7 @@ The proposed Claude Code source architecture is documented in
 
 The runtime flow is:
 
-1. `AgentStore` starts Cursor file monitoring, a periodic recovery poll, and notification authorization.
+1. `AgentStore` starts Cursor file monitoring, a periodic recovery poll, and reads the current notification permission without prompting.
 2. Cursor filesystem changes trigger a debounced refresh; the recovery poll refreshes every enabled source.
 3. Cursor and Codex records are normalized into `CursorAgent` values.
 4. The store sorts the combined snapshot, compares statuses with the previous snapshot, and emits notifications for completed or newly actionable states.
@@ -178,10 +178,14 @@ python3 scripts/create_app_icon.py Assets/LoopBar-AppIcon-v7.png Assets/AppIcon.
 python3 scripts/install_app_icon.py path/to/LoopBar.app
 ```
 
-`install_app_icon.py` prefers `Assets/AppIcon.icon`, falls back to the flat xcassets, then you re-sign. Do not attach `NotificationLogo.png` — attachments appear on the RIGHT.
+`install_app_icon.py` prefers `Assets/AppIcon.icon`, falls back to the flat xcassets, then you re-sign. Do not attach `NotificationLogo.png` to notification content: macOS renders attachments on the right, while the left source icon comes from the registered app bundle.
 
-Verify the left icon after install:
+Sign test releases with a named Apple Development identity (and public releases with Developer ID Application), not an ad-hoc `-` signature. Ad-hoc builds have no team identifier, so UserNotifications registers a teamless notification source that can retain the generic placeholder icon.
 
-```sh
-open /Applications/LoopBar.app --args --test-notification
-```
+Production builds use the stable `com.loopbar.app` bundle identifier. The earlier `com.loopbar.beta` notification source accumulated stale generic-icon metadata during pre-icon releases and should not be reused.
+
+Give each release DMG a versioned volume name such as `LoopBar 0.8.1`. Reusing `/Volumes/LoopBar` across builds can leave Launch Services pointing Notification Center at stale icon metadata from an older mounted image.
+
+Open LoopBar Settings and choose **Test notification** under Notifications. The production button requests permission in context when needed and sends a real notification from the packaged app. Raw `swift run` sessions cannot test the registered bundle icon; launch a packaged `.app` for the real notification path.
+
+The settings screen checks the current macOS authorization and alert settings without prompting at launch. If notifications or banners are disabled, LoopBar presents a guidance card with **Open System Settings** instead of displaying debug output or failing silently.

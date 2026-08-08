@@ -1,17 +1,39 @@
 import Foundation
+import OSLog
 import UserNotifications
 
 @MainActor
 final class NotificationService {
+    enum PermissionStatus: Equatable {
+        case checking
+        case notRequested
+        case allowed
+        case denied
+        case alertsDisabled
+        case unavailable(String)
+    }
+
+    enum TestResult: Equatable {
+        case delivered
+        case denied
+        case alertsDisabled
+        case failed(String)
+
+        var isSuccess: Bool {
+            self == .delivered
+        }
+    }
+
     static var canUseUserNotifications: Bool {
         Bundle.main.bundleURL.pathExtension == "app"
     }
 
+    private let logger = Logger(subsystem: "com.loopbar.app", category: "notifications")
     private var isAuthorized = false
     private var authorizationResolved = false
     private var pendingNotifications: [(agent: CursorAgent, status: AgentStatus)] = []
 
-    func requestAuthorization() {
+    func refreshAuthorizationStatus() async -> PermissionStatus {
         guard Self.canUseUserNotifications else {
             // SwiftPM/Xcode debug runs can launch LoopBar as a raw executable
             // from DerivedData instead of a real .app bundle. UserNotifications
@@ -19,21 +41,76 @@ final class NotificationService {
             // debug builds use the osascript fallback in `notifyTransition`.
             isAuthorized = true
             authorizationResolved = true
-            return
+            return .unavailable("Notification permission is only available in the packaged app.")
         }
 
-        Task {
-            do {
-                isAuthorized = try await UNUserNotificationCenter.current().requestAuthorization(
-                    options: [.alert, .sound]
-                )
-                authorizationResolved = true
-                flushPendingNotifications()
-            } catch {
-                isAuthorized = false
-                authorizationResolved = true
-                pendingNotifications.removeAll()
+        let status = await permissionStatus(using: .current())
+        switch status {
+        case .allowed:
+            updateAuthorizationState(isAuthorized: true)
+        case .checking:
+            break
+        case .notRequested, .denied, .alertsDisabled, .unavailable:
+            updateAuthorizationState(isAuthorized: false)
+        }
+        return status
+    }
+
+    func sendTestNotification() async -> TestResult {
+        guard Self.canUseUserNotifications else {
+            return .failed("Launch the packaged LoopBar.app to test macOS notifications.")
+        }
+
+        let center = UNUserNotificationCenter.current()
+
+        do {
+            var settings = await center.notificationSettings()
+            if settings.authorizationStatus == .notDetermined {
+                let granted = try await center.requestAuthorization(options: [.alert, .sound])
+                guard granted else {
+                    updateAuthorizationState(isAuthorized: false)
+                    return .denied
+                }
+                settings = await center.notificationSettings()
             }
+
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                updateAuthorizationState(isAuthorized: true)
+            case .denied:
+                updateAuthorizationState(isAuthorized: false)
+                return .denied
+            case .notDetermined:
+                updateAuthorizationState(isAuthorized: false)
+                return .failed("macOS did not resolve notification permission.")
+            @unknown default:
+                updateAuthorizationState(isAuthorized: false)
+                return .failed("macOS returned an unknown authorization state.")
+            }
+
+            guard settings.alertSetting == .enabled else {
+                return .alertsDisabled
+            }
+
+            try await deliverTestNotification(using: center)
+            return .delivered
+        } catch {
+            logger.error("Test notification failed: \(error.localizedDescription, privacy: .public)")
+            return .failed(Self.describe(error))
+        }
+    }
+
+    private func permissionStatus(using center: UNUserNotificationCenter) async -> PermissionStatus {
+        let settings = await center.notificationSettings()
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            return .notRequested
+        case .denied:
+            return .denied
+        case .authorized, .provisional, .ephemeral:
+            return settings.alertSetting == .enabled ? .allowed : .alertsDisabled
+        @unknown default:
+            return .unavailable("macOS returned an unknown notification permission state.")
         }
     }
 
@@ -54,6 +131,16 @@ final class NotificationService {
         deliver(agent: agent, status: newStatus)
     }
 
+    private func updateAuthorizationState(isAuthorized authorized: Bool) {
+        isAuthorized = authorized
+        authorizationResolved = true
+        if authorized {
+            flushPendingNotifications()
+        } else {
+            pendingNotifications.removeAll()
+        }
+    }
+
     private func flushPendingNotifications() {
         guard isAuthorized else {
             pendingNotifications.removeAll()
@@ -64,6 +151,24 @@ final class NotificationService {
         for notification in pending {
             deliver(agent: notification.agent, status: notification.status)
         }
+    }
+
+    private func deliverTestNotification(using center: UNUserNotificationCenter) async throws {
+        let content = Self.makeTestContent()
+        let request = UNNotificationRequest(
+            identifier: "loopbar.test-icon.\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        try await center.add(request)
+    }
+
+    static func makeTestContent() -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "LoopBar notification test"
+        content.body = "The LoopBar logo should appear on the left."
+        content.sound = .default
+        return content
     }
 
     private func deliver(agent: CursorAgent, status newStatus: AgentStatus) {
@@ -86,16 +191,19 @@ final class NotificationService {
         } else {
             content.userInfo = ["agentSource": agent.source.rawValue]
         }
-        // Do not attach NotificationLogo.png — that appears on the RIGHT of the
-        // banner. The LEFT icon must come from the app bundle (Assets.car +
-        // CFBundleIconName / AppIcon.icns).
+        // Do not use an image attachment for branding: macOS renders attachments
+        // on the right. The left source icon comes from the registered app bundle.
 
         let request = UNNotificationRequest(
             identifier: "loopbar.\(agent.id).\(newStatus.rawValue)",
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request)
+        UNUserNotificationCenter.current().add(request) { [logger] error in
+            if let error {
+                logger.error("Agent notification failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     private func deliverDebugNotification(title: String, body: String) {
@@ -116,6 +224,14 @@ final class NotificationService {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: " ")
+    }
+
+    private static func describe(_ error: Error) -> String {
+        let nsError = error as NSError
+        if nsError.domain == UNErrorDomain {
+            return "\(nsError.localizedDescription) (UNError \(nsError.code))"
+        }
+        return nsError.localizedDescription
     }
 
     private func shouldNotify(from oldStatus: AgentStatus, to newStatus: AgentStatus, settings: Settings) -> Bool {
