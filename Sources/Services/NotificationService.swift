@@ -13,17 +13,6 @@ final class NotificationService {
         case unavailable(String)
     }
 
-    enum TestResult: Equatable {
-        case delivered
-        case denied
-        case alertsDisabled
-        case failed(String)
-
-        var isSuccess: Bool {
-            self == .delivered
-        }
-    }
-
     static var canUseUserNotifications: Bool {
         Bundle.main.bundleURL.pathExtension == "app"
     }
@@ -56,47 +45,36 @@ final class NotificationService {
         return status
     }
 
-    func sendTestNotification() async -> TestResult {
+    /// Request alert and sound permission from setup or Settings without
+    /// sending a sample notification.
+    func requestAuthorization() async -> PermissionStatus {
         guard Self.canUseUserNotifications else {
-            return .failed("Launch the packaged LoopBar.app to test macOS notifications.")
+            isAuthorized = true
+            authorizationResolved = true
+            return .unavailable("Notification permission is only available in the packaged app.")
         }
 
         let center = UNUserNotificationCenter.current()
-
         do {
-            var settings = await center.notificationSettings()
+            let settings = await center.notificationSettings()
             if settings.authorizationStatus == .notDetermined {
-                let granted = try await center.requestAuthorization(options: [.alert, .sound])
-                guard granted else {
-                    updateAuthorizationState(isAuthorized: false)
-                    return .denied
-                }
-                settings = await center.notificationSettings()
+                _ = try await center.requestAuthorization(options: [.alert, .sound])
             }
 
-            switch settings.authorizationStatus {
-            case .authorized, .provisional, .ephemeral:
+            let status = await permissionStatus(using: center)
+            switch status {
+            case .allowed:
                 updateAuthorizationState(isAuthorized: true)
-            case .denied:
+            case .checking:
+                break
+            case .notRequested, .denied, .alertsDisabled, .unavailable:
                 updateAuthorizationState(isAuthorized: false)
-                return .denied
-            case .notDetermined:
-                updateAuthorizationState(isAuthorized: false)
-                return .failed("macOS did not resolve notification permission.")
-            @unknown default:
-                updateAuthorizationState(isAuthorized: false)
-                return .failed("macOS returned an unknown authorization state.")
             }
-
-            guard settings.alertSetting == .enabled else {
-                return .alertsDisabled
-            }
-
-            try await deliverTestNotification(using: center)
-            return .delivered
+            return status
         } catch {
-            logger.error("Test notification failed: \(error.localizedDescription, privacy: .public)")
-            return .failed(Self.describe(error))
+            logger.error("Notification authorization failed: \(error.localizedDescription, privacy: .public)")
+            updateAuthorizationState(isAuthorized: false)
+            return .unavailable(Self.describe(error))
         }
     }
 
@@ -151,24 +129,6 @@ final class NotificationService {
         for notification in pending {
             deliver(agent: notification.agent, status: notification.status)
         }
-    }
-
-    private func deliverTestNotification(using center: UNUserNotificationCenter) async throws {
-        let content = Self.makeTestContent()
-        let request = UNNotificationRequest(
-            identifier: "loopbar.test-icon.\(UUID().uuidString)",
-            content: content,
-            trigger: nil
-        )
-        try await center.add(request)
-    }
-
-    static func makeTestContent() -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "LoopBar notification test"
-        content.body = "The LoopBar logo should appear on the left."
-        content.sound = .default
-        return content
     }
 
     private func deliver(agent: CursorAgent, status newStatus: AgentStatus) {

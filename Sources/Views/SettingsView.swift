@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var store: AgentStore
+    @ObservedObject private var launchAtLogin: LaunchAtLoginService
     /// When embedded in the island, dismiss returns to the agents pane.
     var onDone: (() -> Void)?
 
@@ -16,6 +17,7 @@ struct SettingsView: View {
     init(store: AgentStore, onDone: (() -> Void)? = nil) {
         self.store = store
         self.onDone = onDone
+        _launchAtLogin = ObservedObject(wrappedValue: store.launchAtLogin)
     }
 
     var body: some View {
@@ -31,6 +33,14 @@ struct SettingsView: View {
         // Both layouts expose the interval picker; restart polling so a new
         // interval applies now instead of after the in-flight sleep elapses.
         .onChange(of: store.settings.refreshSeconds) { _, _ in store.updateSettings() }
+        .onChange(of: store.settings.notificationsEnabled) { _, enabled in
+            if enabled {
+                store.requestNotificationAuthorization()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin.refresh()
+        }
         .padding(.horizontal, isEmbedded ? 38 : 16)
         .padding(.vertical, isEmbedded ? 22 : 16)
         .frame(width: isEmbedded ? nil : 420)
@@ -102,6 +112,8 @@ struct SettingsView: View {
 
             sourceToggles
 
+            launchAtLoginPreference
+
             notificationPreferences
         }
     }
@@ -123,6 +135,12 @@ struct SettingsView: View {
             }
             .pickerStyle(.menu)
         }
+        Section("General") {
+            Toggle("Launch LoopBar at login", isOn: launchAtLoginBinding)
+                .disabled(!launchAtLogin.isAvailable)
+            launchAtLoginGuidance(embedded: false)
+        }
+        .toggleStyle(.switch)
         Section("Sources") {
             Toggle("Monitor Cursor", isOn: $store.settings.cursorEnabled)
             Toggle("Monitor Codex", isOn: $store.settings.codexEnabled)
@@ -141,7 +159,6 @@ struct SettingsView: View {
                     Toggle("Failure notifications", isOn: $store.settings.failureNotifications)
                 }
                 permissionGuidance(embedded: false)
-                formTestNotificationButton
             }
             if !store.settings.notificationsEnabled {
                 Text("Notification options are hidden while notifications are disabled.")
@@ -230,8 +247,6 @@ struct SettingsView: View {
                         )
                     }
                 }
-
-                embeddedTestNotificationButton
             } else {
                 Text("Notification options are hidden while disabled.")
                     .font(.caption2)
@@ -245,63 +260,75 @@ struct SettingsView: View {
         }
     }
 
-    private var formTestNotificationButton: some View {
-        Button {
-            store.sendTestNotification()
-        } label: {
-            HStack {
-                Label("Test notification", systemImage: "bell.badge")
-                Spacer()
-                notificationTestAccessory
-            }
-        }
-        .disabled(store.isSendingTestNotification)
-    }
-
-    private var embeddedTestNotificationButton: some View {
-        Button {
-            store.sendTestNotification()
-        } label: {
+    private var launchAtLoginPreference: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Image(systemName: "bell.badge.fill")
+                Image(systemName: "power")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(.green)
                     .frame(width: 28, height: 28)
-                    .background(.blue.opacity(0.16), in: Circle())
+                    .background(.green.opacity(0.16), in: Circle())
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Test notification")
+                    Text("Launch at Login")
                         .font(.system(size: 12, weight: .semibold))
-                    Text("Send a sample LoopBar alert")
+                    Text("Start LoopBar automatically after sign-in")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.48))
                 }
 
                 Spacer(minLength: 8)
-                notificationTestAccessory
+                Toggle("", isOn: launchAtLoginBinding)
+                    .labelsHidden()
+                    .disabled(!launchAtLogin.isAvailable)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            launchAtLoginGuidance(embedded: true)
         }
-        .buttonStyle(.plain)
-        .disabled(store.isSendingTestNotification)
+        .toggleStyle(.switch)
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLogin.isEnabled },
+            set: { launchAtLogin.setEnabled($0) }
+        )
     }
 
     @ViewBuilder
-    private var notificationTestAccessory: some View {
-        if store.isSendingTestNotification {
-            ProgressView()
-                .controlSize(.small)
-        } else if store.notificationTestResult?.isSuccess == true {
-            Label("Sent", systemImage: "checkmark.circle.fill")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.green)
-        } else {
-            Text("Send")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.blue)
+    private func launchAtLoginGuidance(embedded: Bool) -> some View {
+        if let message = launchAtLoginMessage {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(
+                        launchAtLogin.errorMessage == nil
+                            ? (embedded ? Color.white.opacity(0.56) : Color.secondary)
+                            : Color.red
+                    )
+                if launchAtLogin.requiresApproval {
+                    Button("Open Login Items Settings") {
+                        launchAtLogin.openLoginItemsSettings()
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.link)
+                }
+            }
+            .padding(.horizontal, embedded ? 10 : 0)
         }
+    }
+
+    private var launchAtLoginMessage: String? {
+        if let error = launchAtLogin.errorMessage {
+            return error
+        }
+        if launchAtLogin.requiresApproval {
+            return "macOS requires approval before LoopBar can launch at login."
+        }
+        return launchAtLogin.availabilityMessage
     }
 
     @ViewBuilder
@@ -328,11 +355,12 @@ struct SettingsView: View {
         case .notRequested:
             permissionCard(
                 title: "Notification permission required",
-                message: "Choose Test notification and allow alerts when macOS asks.",
+                message: "Allow LoopBar to show agent updates and completion alerts.",
                 symbol: "bell.badge.fill",
                 color: .blue,
                 embedded: embedded,
-                showsSettingsButton: false
+                showsSettingsButton: false,
+                showsAuthorizationButton: true
             )
         case let .unavailable(message):
             permissionCard(
@@ -346,17 +374,6 @@ struct SettingsView: View {
         case .checking, .allowed:
             EmptyView()
         }
-
-        if case let .failed(message) = store.notificationTestResult {
-            permissionCard(
-                title: "Notification could not be sent",
-                message: message,
-                symbol: "exclamationmark.triangle.fill",
-                color: .red,
-                embedded: embedded,
-                showsSettingsButton: false
-            )
-        }
     }
 
     private func permissionCard(
@@ -365,7 +382,8 @@ struct SettingsView: View {
         symbol: String,
         color: Color,
         embedded: Bool,
-        showsSettingsButton: Bool
+        showsSettingsButton: Bool,
+        showsAuthorizationButton: Bool = false
     ) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: symbol)
@@ -384,6 +402,13 @@ struct SettingsView: View {
                 if showsSettingsButton {
                     Button("Open System Settings") {
                         store.openNotificationSettings()
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.link)
+                }
+                if showsAuthorizationButton {
+                    Button("Allow notifications") {
+                        store.requestNotificationAuthorization()
                     }
                     .font(.caption2.weight(.semibold))
                     .buttonStyle(.link)

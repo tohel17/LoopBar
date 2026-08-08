@@ -10,7 +10,8 @@ final class Settings: ObservableObject {
     @Published var attentionNotifications: Bool { didSet { defaults.set(attentionNotifications, forKey: Keys.attentionNotifications) } }
     @Published var failureNotifications: Bool { didSet { defaults.set(failureNotifications, forKey: Keys.failureNotifications) } }
     @Published var notificationsEnabled: Bool { didSet { defaults.set(notificationsEnabled, forKey: Keys.notificationsEnabled) } }
-    private let defaults = UserDefaults.standard
+    @Published private(set) var hasCompletedOnboarding: Bool
+    private let defaults: UserDefaults
     private enum Keys {
         static let refresh = "refreshSeconds"
         static let cursorEnabled = "cursorMonitoringEnabled"
@@ -20,9 +21,11 @@ final class Settings: ObservableObject {
         static let attentionNotifications = "attentionNotificationsEnabled"
         static let failureNotifications = "failureNotificationsEnabled"
         static let notificationsEnabled = "notificationsEnabled"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         refreshSeconds = min(max(defaults.object(forKey: Keys.refresh) as? Double ?? 1, 1), 60)
         cursorEnabled = defaults.object(forKey: Keys.cursorEnabled) as? Bool ?? true
         codexEnabled = defaults.object(forKey: Keys.codexEnabled) as? Bool ?? true
@@ -31,5 +34,11 @@ final class Settings: ObservableObject {
         attentionNotifications = defaults.object(forKey: Keys.attentionNotifications) as? Bool ?? true
         failureNotifications = defaults.object(forKey: Keys.failureNotifications) as? Bool ?? true
         notificationsEnabled = defaults.object(forKey: Keys.notificationsEnabled) as? Bool ?? true
+        hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
+    }
+
+    func completeOnboarding() {
+        hasCompletedOnboarding = true
+        defaults.set(true, forKey: Keys.hasCompletedOnboarding)
     }
 }

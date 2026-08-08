@@ -1,6 +1,6 @@
 # LoopBar
 
-LoopBar is a native macOS menu-bar monitor for recent local Cursor composers and Codex tasks. It displays a notch-style island at the top of the active screen and is deliberately read-only: it observes local application state, but never sends prompts or changes Cursor/Codex data.
+LoopBar is a native macOS menu-bar monitor for recent local Cursor composers, Codex tasks, and Claude Code sessions. It displays a notch-style island at the top of the active screen and is deliberately read-only: it observes local application state, but never sends prompts or changes coding-tool data.
 
 ![Architecture](docs/architecture.svg)
 
@@ -13,6 +13,8 @@ swift run LoopBar
 ```
 
 Click the island to expand it. Click an agent row to open its source application. The gear button opens settings; the refresh button performs an immediate refresh; the power button quits LoopBar.
+
+On first launch, LoopBar presents a three-step setup assistant. It explains the local, read-only workflow, lets the user independently enable or disable Cursor, Codex, and Claude Code monitoring, and offers native Launch at Login registration. If notifications remain enabled, macOS asks for alert and sound permission when setup finishes. The choices remain editable in Settings; the assistant does not appear again after completion.
 
 The app version has one source of truth: `Sources/Resources/version.txt`. After changing it, rebuild LoopBar. Before packaging the `.app`, synchronize its Info.plist:
 
@@ -111,6 +113,7 @@ The proposed Claude Code source architecture is documented in
 - `Sources/App/LoopBarApp.swift` — executable entry point; creates the store, view model, and panel controller.
 - `Sources/App/AppDelegate.swift` — application lifecycle, notification delegate, and notification click handling.
 - `Sources/Controllers/IslandPanelController.swift` — owns the borderless `NSPanel`, hosts SwiftUI, tracks screen changes, and resizes/repositions the panel. Width changes animate horizontally while vertical notch alignment remains fixed.
+- `Sources/Controllers/OnboardingWindowController.swift` — presents the one-time first-launch setup assistant in a centered native window.
 - `Sources/Geometry/IslandGeometry.swift` — calculates the active screen and notch-aligned panel frame.
 - `Sources/ViewModels/IslandViewModel.swift` — owns compact/expanded chrome, selected content, and store-driven loading/error presentation. It does not own agent data.
 - `Sources/Models/Agent.swift` — agent value model, sources, statuses, labels, icons, terminal state, and attention state.
@@ -127,19 +130,21 @@ The proposed Claude Code source architecture is documented in
 - `Sources/Services/CodexProcessDiscovery.swift` — read-only `ps`/`lsof` discovery that maps terminal-attached Codex processes to live rollout files.
 - `Sources/Services/AgentOpener.swift` — opens Cursor or Codex when a row or notification is clicked.
 - `Sources/Services/NotificationService.swift` — posts status-transition notifications with sound in packaged `.app` builds and uses an `osascript` notification fallback for raw SwiftPM/debug runs.
-- `Sources/Services/Settings.swift` — persists refresh interval and Cursor/Codex source toggles in `UserDefaults`.
+- `Sources/Services/LaunchAtLoginService.swift` — registers the main app with macOS Service Management and reports approval/error states.
+- `Sources/Services/Settings.swift` — persists onboarding completion, refresh and notification preferences, and source toggles in `UserDefaults`.
 - `Sources/Utilities/IslandMetrics.swift` — compact/expanded widths, heights, list sizing, and settings sizing.
 - `Sources/Utilities/AgentElapsedText.swift` — elapsed-time formatting for expanded rows.
 - `Sources/Views/IslandRootView.swift` — top-level SwiftUI sizing wrapper.
+- `Sources/Views/OnboardingView.swift` — welcome, workflow explanation, source selection, and notification preference screens.
 - `Sources/Views/MenuPanelView.swift` — black island shape, header/body/footer composition, dividers, and footer actions.
 - `Sources/Views/CompactIslandView.swift` — grouped compact counts, directional gradients, and the full-width toggle hit area.
 - `Sources/Views/ExpandedIslandView.swift` — agents list, settings body, logs placeholder, and error/empty states.
 - `Sources/Views/AgentRowView.swift` — expanded agent row, elapsed status, source/status color, progress, and click action.
-- `Sources/Views/SettingsView.swift` — source toggles and refresh interval controls.
+- `Sources/Views/SettingsView.swift` — source, Launch at Login, notification, and refresh controls.
 
 The runtime flow is:
 
-1. `AgentStore` starts Cursor file monitoring, a periodic recovery poll, and reads the current notification permission without prompting.
+1. On first launch, `AgentStore` waits for setup to finish, requests notification permission when enabled, then starts Cursor file monitoring and a periodic recovery poll. Later launches start monitoring immediately and read the existing permission without prompting.
 2. Cursor filesystem changes trigger a debounced refresh; the recovery poll refreshes every enabled source.
 3. Cursor and Codex records are normalized into `CursorAgent` values.
 4. The store sorts the combined snapshot, compares statuses with the previous snapshot, and emits notifications for completed or newly actionable states.
@@ -182,6 +187,4 @@ Production builds use the stable `com.loopbar.app` bundle identifier. The earlie
 
 Give each release DMG a versioned volume name such as `LoopBar 0.8.1`. Reusing `/Volumes/LoopBar` across builds can leave Launch Services pointing Notification Center at stale icon metadata from an older mounted image.
 
-Open LoopBar Settings and choose **Test notification** under Notifications. The production button requests permission in context when needed and sends a real notification from the packaged app. Raw `swift run` sessions cannot test the registered bundle icon; launch a packaged `.app` for the real notification path.
-
-The settings screen checks the current macOS authorization and alert settings without prompting at launch. If notifications or banners are disabled, LoopBar presents a guidance card with **Open System Settings** instead of displaying debug output or failing silently.
+The setup assistant requests notification permission when alerts are enabled. The settings screen checks the current macOS authorization and alert settings without prompting at launch; enabling notifications later requests permission directly. If notifications or banners are disabled, LoopBar presents guidance to allow notifications or open System Settings instead of displaying debug output or failing silently.

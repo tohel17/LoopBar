@@ -10,10 +10,9 @@ final class AgentStore: ObservableObject {
     @Published private(set) var agents: [CursorAgent] = []
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var errorMessage: String?
-    @Published private(set) var notificationTestResult: NotificationService.TestResult?
-    @Published private(set) var isSendingTestNotification = false
     @Published private(set) var notificationPermissionStatus: NotificationService.PermissionStatus = .checking
     @Published var settings = Settings()
+    let launchAtLogin = LaunchAtLoginService()
 
     private let cursorAPI = CursorAPI()
     private let codexAPI = CodexAPI()
@@ -21,11 +20,11 @@ final class AgentStore: ObservableObject {
     private let cursorFileWatcher = CursorFileWatcher()
     private let notificationService = NotificationService()
     private var pollingTask: Task<Void, Never>?
+    private var hasStartedMonitoring = false
     private var isRefreshing = false
     private var refreshPending = false
     private var hasLoadedInitialSnapshot = false
     private var lastStatuses: [String: AgentStatus] = [:]
-    private var notificationFeedbackTask: Task<Void, Never>?
     private var settingsObserver: AnyCancellable?
 
     init() {
@@ -36,13 +35,20 @@ final class AgentStore: ObservableObject {
         settingsObserver = settings.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+        guard settings.hasCompletedOnboarding else { return }
+        startMonitoring()
+        restartPolling()
+    }
+
+    private func startMonitoring() {
+        guard !hasStartedMonitoring else { return }
+        hasStartedMonitoring = true
         cursorFileWatcher.start { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.settings.cursorEnabled else { return }
                 await self.refresh()
             }
         }
-        restartPolling()
     }
 
     func refreshNotificationAuthorization() {
@@ -54,7 +60,6 @@ final class AgentStore: ObservableObject {
 
     deinit {
         pollingTask?.cancel()
-        notificationFeedbackTask?.cancel()
         cursorFileWatcher.stop()
     }
 
@@ -136,27 +141,27 @@ final class AgentStore: ObservableObject {
     }
 
     func updateSettings() {
+        guard settings.hasCompletedOnboarding else { return }
+        startMonitoring()
         restartPolling()
         Task { await refresh() }
     }
 
-    func sendTestNotification() {
-        notificationFeedbackTask?.cancel()
-        notificationTestResult = nil
-        isSendingTestNotification = true
+    func completeOnboarding() async {
+        if settings.notificationsEnabled {
+            notificationPermissionStatus = await notificationService.requestAuthorization()
+        } else {
+            notificationPermissionStatus = await notificationService.refreshAuthorizationStatus()
+        }
+        settings.completeOnboarding()
+        updateSettings()
+    }
+
+    func requestNotificationAuthorization() {
+        notificationPermissionStatus = .checking
         Task { [weak self] in
             guard let self else { return }
-            let result = await notificationService.sendTestNotification()
-            notificationTestResult = result
-            isSendingTestNotification = false
-            notificationPermissionStatus = await notificationService.refreshAuthorizationStatus()
-
-            guard result.isSuccess else { return }
-            notificationFeedbackTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(3))
-                guard !Task.isCancelled else { return }
-                self?.notificationTestResult = nil
-            }
+            notificationPermissionStatus = await notificationService.requestAuthorization()
         }
     }
 
