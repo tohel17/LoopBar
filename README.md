@@ -14,7 +14,7 @@ swift run LoopBar
 
 Click the island to expand it. Click an agent row to open its source application. The gear button opens settings; the refresh button performs an immediate refresh; the power button quits LoopBar.
 
-On first launch, LoopBar presents a three-step setup assistant. It explains the local, read-only workflow and lets the user independently enable or disable Cursor, Codex, and Claude Code monitoring before monitoring begins. If notifications remain enabled, macOS asks for alert and sound permission when setup finishes. The choices persist in `UserDefaults` and remain editable in Settings; the assistant does not appear again after completion.
+On first launch, LoopBar presents a three-step setup assistant. It explains the local, read-only workflow, lets the user independently enable or disable Cursor, Codex, and Claude Code monitoring, and offers native Launch at Login registration. If notifications remain enabled, macOS asks for alert and sound permission when setup finishes. The choices remain editable in Settings; the assistant does not appear again after completion.
 
 The app version has one source of truth: `Sources/Resources/version.txt`. After changing it, rebuild LoopBar. Before packaging the `.app`, synchronize its Info.plist:
 
@@ -130,6 +130,7 @@ The proposed Claude Code source architecture is documented in
 - `Sources/Services/CodexProcessDiscovery.swift` — read-only `ps`/`lsof` discovery that maps terminal-attached Codex processes to live rollout files.
 - `Sources/Services/AgentOpener.swift` — opens Cursor or Codex when a row or notification is clicked.
 - `Sources/Services/NotificationService.swift` — posts status-transition notifications with sound in packaged `.app` builds and uses an `osascript` notification fallback for raw SwiftPM/debug runs.
+- `Sources/Services/LaunchAtLoginService.swift` — registers the main app with macOS Service Management and reports approval/error states.
 - `Sources/Services/Settings.swift` — persists onboarding completion, refresh and notification preferences, and source toggles in `UserDefaults`.
 - `Sources/Utilities/IslandMetrics.swift` — compact/expanded widths, heights, list sizing, and settings sizing.
 - `Sources/Utilities/AgentElapsedText.swift` — elapsed-time formatting for expanded rows.
@@ -139,7 +140,7 @@ The proposed Claude Code source architecture is documented in
 - `Sources/Views/CompactIslandView.swift` — grouped compact counts, directional gradients, and the full-width toggle hit area.
 - `Sources/Views/ExpandedIslandView.swift` — agents list, settings body, logs placeholder, and error/empty states.
 - `Sources/Views/AgentRowView.swift` — expanded agent row, elapsed status, source/status color, progress, and click action.
-- `Sources/Views/SettingsView.swift` — source toggles and refresh interval controls.
+- `Sources/Views/SettingsView.swift` — source, Launch at Login, notification, and refresh controls.
 
 The runtime flow is:
 

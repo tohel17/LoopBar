@@ -1,7 +1,9 @@
+import AppKit
 import SwiftUI
 
 struct OnboardingView: View {
     @ObservedObject var settings: Settings
+    @ObservedObject var launchAtLogin: LaunchAtLoginService
     let onComplete: () -> Void
 
     @State private var step = Step.welcome
@@ -42,6 +44,9 @@ struct OnboardingView: View {
                 startPoint: .top,
                 endPoint: .bottomTrailing
             )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin.refresh()
         }
     }
 
@@ -183,7 +188,48 @@ struct OnboardingView: View {
             }
             .toggleStyle(.switch)
             .padding(.horizontal, 14)
+
+            Toggle(isOn: launchAtLoginBinding) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Launch LoopBar when I log in")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(launchAtLoginDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .disabled(!launchAtLogin.isAvailable)
+            .padding(.horizontal, 14)
+
+            if launchAtLogin.requiresApproval {
+                Button("Open Login Items Settings") {
+                    launchAtLogin.openLoginItemsSettings()
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.link)
+            }
         }
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLogin.isEnabled },
+            set: { launchAtLogin.setEnabled($0) }
+        )
+    }
+
+    private var launchAtLoginDetail: String {
+        if let error = launchAtLogin.errorMessage {
+            return error
+        }
+        if launchAtLogin.requiresApproval {
+            return "Approve LoopBar in System Settings > General > Login Items."
+        }
+        if let message = launchAtLogin.availabilityMessage {
+            return message
+        }
+        return "Starts LoopBar automatically after you sign in."
     }
 
     private var footer: some View {

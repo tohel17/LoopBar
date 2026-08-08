@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var store: AgentStore
+    @ObservedObject private var launchAtLogin: LaunchAtLoginService
     /// When embedded in the island, dismiss returns to the agents pane.
     var onDone: (() -> Void)?
 
@@ -16,6 +17,7 @@ struct SettingsView: View {
     init(store: AgentStore, onDone: (() -> Void)? = nil) {
         self.store = store
         self.onDone = onDone
+        _launchAtLogin = ObservedObject(wrappedValue: store.launchAtLogin)
     }
 
     var body: some View {
@@ -35,6 +37,9 @@ struct SettingsView: View {
             if enabled {
                 store.requestNotificationAuthorization()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin.refresh()
         }
         .padding(.horizontal, isEmbedded ? 38 : 16)
         .padding(.vertical, isEmbedded ? 22 : 16)
@@ -107,6 +112,8 @@ struct SettingsView: View {
 
             sourceToggles
 
+            launchAtLoginPreference
+
             notificationPreferences
         }
     }
@@ -128,6 +135,12 @@ struct SettingsView: View {
             }
             .pickerStyle(.menu)
         }
+        Section("General") {
+            Toggle("Launch LoopBar at login", isOn: launchAtLoginBinding)
+                .disabled(!launchAtLogin.isAvailable)
+            launchAtLoginGuidance(embedded: false)
+        }
+        .toggleStyle(.switch)
         Section("Sources") {
             Toggle("Monitor Cursor", isOn: $store.settings.cursorEnabled)
             Toggle("Monitor Codex", isOn: $store.settings.codexEnabled)
@@ -245,6 +258,77 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             store.refreshNotificationAuthorization()
         }
+    }
+
+    private var launchAtLoginPreference: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "power")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.green)
+                    .frame(width: 28, height: 28)
+                    .background(.green.opacity(0.16), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Launch at Login")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Start LoopBar automatically after sign-in")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.48))
+                }
+
+                Spacer(minLength: 8)
+                Toggle("", isOn: launchAtLoginBinding)
+                    .labelsHidden()
+                    .disabled(!launchAtLogin.isAvailable)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            launchAtLoginGuidance(embedded: true)
+        }
+        .toggleStyle(.switch)
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLogin.isEnabled },
+            set: { launchAtLogin.setEnabled($0) }
+        )
+    }
+
+    @ViewBuilder
+    private func launchAtLoginGuidance(embedded: Bool) -> some View {
+        if let message = launchAtLoginMessage {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(
+                        launchAtLogin.errorMessage == nil
+                            ? (embedded ? Color.white.opacity(0.56) : Color.secondary)
+                            : Color.red
+                    )
+                if launchAtLogin.requiresApproval {
+                    Button("Open Login Items Settings") {
+                        launchAtLogin.openLoginItemsSettings()
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.link)
+                }
+            }
+            .padding(.horizontal, embedded ? 10 : 0)
+        }
+    }
+
+    private var launchAtLoginMessage: String? {
+        if let error = launchAtLogin.errorMessage {
+            return error
+        }
+        if launchAtLogin.requiresApproval {
+            return "macOS requires approval before LoopBar can launch at login."
+        }
+        return launchAtLogin.availabilityMessage
     }
 
     @ViewBuilder

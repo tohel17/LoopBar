@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func showOnboardingIfNeeded() {
         guard !store.settings.hasCompletedOnboarding else { return }
 
-        let controller = OnboardingWindowController(settings: store.settings) { [weak self] in
+        let controller = OnboardingWindowController(store: store) { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.store.completeOnboarding()

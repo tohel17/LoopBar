@@ -12,6 +12,7 @@ final class AgentStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var notificationPermissionStatus: NotificationService.PermissionStatus = .checking
     @Published var settings = Settings()
+    let launchAtLogin = LaunchAtLoginService()
 
     private let cursorAPI = CursorAPI()
     private let codexAPI = CodexAPI()
