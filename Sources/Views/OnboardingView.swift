@@ -5,6 +5,7 @@ struct OnboardingView: View {
     let onComplete: () -> Void
 
     @State private var step = Step.welcome
+    @State private var isFinishing = false
 
     private enum Step: Int, CaseIterable {
         case welcome
@@ -175,7 +176,7 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Notify me when work finishes or needs attention")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Test notifications in Settings later to allow them in macOS.")
+                    Text("macOS will ask for notification permission when setup finishes.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -192,12 +193,15 @@ struct OnboardingView: View {
                     move(to: step.rawValue - 1)
                 }
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
+                .disabled(isFinishing)
             }
 
             Spacer()
 
             Button(step == .tools ? "Start using LoopBar" : "Continue") {
                 if step == .tools {
+                    guard !isFinishing else { return }
+                    isFinishing = true
                     onComplete()
                 } else {
                     move(to: step.rawValue + 1)
@@ -206,6 +210,7 @@ struct OnboardingView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
+            .disabled(isFinishing)
         }
         .padding(.horizontal, 30)
         .padding(.vertical, 22)

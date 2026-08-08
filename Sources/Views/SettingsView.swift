@@ -31,6 +31,11 @@ struct SettingsView: View {
         // Both layouts expose the interval picker; restart polling so a new
         // interval applies now instead of after the in-flight sleep elapses.
         .onChange(of: store.settings.refreshSeconds) { _, _ in store.updateSettings() }
+        .onChange(of: store.settings.notificationsEnabled) { _, enabled in
+            if enabled {
+                store.requestNotificationAuthorization()
+            }
+        }
         .padding(.horizontal, isEmbedded ? 38 : 16)
         .padding(.vertical, isEmbedded ? 22 : 16)
         .frame(width: isEmbedded ? nil : 420)
@@ -141,7 +146,6 @@ struct SettingsView: View {
                     Toggle("Failure notifications", isOn: $store.settings.failureNotifications)
                 }
                 permissionGuidance(embedded: false)
-                formTestNotificationButton
             }
             if !store.settings.notificationsEnabled {
                 Text("Notification options are hidden while notifications are disabled.")
@@ -230,8 +234,6 @@ struct SettingsView: View {
                         )
                     }
                 }
-
-                embeddedTestNotificationButton
             } else {
                 Text("Notification options are hidden while disabled.")
                     .font(.caption2)
@@ -242,65 +244,6 @@ struct SettingsView: View {
         .onAppear { store.refreshNotificationAuthorization() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             store.refreshNotificationAuthorization()
-        }
-    }
-
-    private var formTestNotificationButton: some View {
-        Button {
-            store.sendTestNotification()
-        } label: {
-            HStack {
-                Label("Test notification", systemImage: "bell.badge")
-                Spacer()
-                notificationTestAccessory
-            }
-        }
-        .disabled(store.isSendingTestNotification)
-    }
-
-    private var embeddedTestNotificationButton: some View {
-        Button {
-            store.sendTestNotification()
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "bell.badge.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.blue)
-                    .frame(width: 28, height: 28)
-                    .background(.blue.opacity(0.16), in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Test notification")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Send a sample LoopBar alert")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.48))
-                }
-
-                Spacer(minLength: 8)
-                notificationTestAccessory
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(store.isSendingTestNotification)
-    }
-
-    @ViewBuilder
-    private var notificationTestAccessory: some View {
-        if store.isSendingTestNotification {
-            ProgressView()
-                .controlSize(.small)
-        } else if store.notificationTestResult?.isSuccess == true {
-            Label("Sent", systemImage: "checkmark.circle.fill")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.green)
-        } else {
-            Text("Send")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.blue)
         }
     }
 
@@ -328,11 +271,12 @@ struct SettingsView: View {
         case .notRequested:
             permissionCard(
                 title: "Notification permission required",
-                message: "Choose Test notification and allow alerts when macOS asks.",
+                message: "Allow LoopBar to show agent updates and completion alerts.",
                 symbol: "bell.badge.fill",
                 color: .blue,
                 embedded: embedded,
-                showsSettingsButton: false
+                showsSettingsButton: false,
+                showsAuthorizationButton: true
             )
         case let .unavailable(message):
             permissionCard(
@@ -346,17 +290,6 @@ struct SettingsView: View {
         case .checking, .allowed:
             EmptyView()
         }
-
-        if case let .failed(message) = store.notificationTestResult {
-            permissionCard(
-                title: "Notification could not be sent",
-                message: message,
-                symbol: "exclamationmark.triangle.fill",
-                color: .red,
-                embedded: embedded,
-                showsSettingsButton: false
-            )
-        }
     }
 
     private func permissionCard(
@@ -365,7 +298,8 @@ struct SettingsView: View {
         symbol: String,
         color: Color,
         embedded: Bool,
-        showsSettingsButton: Bool
+        showsSettingsButton: Bool,
+        showsAuthorizationButton: Bool = false
     ) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: symbol)
@@ -384,6 +318,13 @@ struct SettingsView: View {
                 if showsSettingsButton {
                     Button("Open System Settings") {
                         store.openNotificationSettings()
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.link)
+                }
+                if showsAuthorizationButton {
+                    Button("Allow notifications") {
+                        store.requestNotificationAuthorization()
                     }
                     .font(.caption2.weight(.semibold))
                     .buttonStyle(.link)

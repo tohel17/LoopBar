@@ -10,8 +10,6 @@ final class AgentStore: ObservableObject {
     @Published private(set) var agents: [CursorAgent] = []
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var errorMessage: String?
-    @Published private(set) var notificationTestResult: NotificationService.TestResult?
-    @Published private(set) var isSendingTestNotification = false
     @Published private(set) var notificationPermissionStatus: NotificationService.PermissionStatus = .checking
     @Published var settings = Settings()
 
@@ -26,7 +24,6 @@ final class AgentStore: ObservableObject {
     private var refreshPending = false
     private var hasLoadedInitialSnapshot = false
     private var lastStatuses: [String: AgentStatus] = [:]
-    private var notificationFeedbackTask: Task<Void, Never>?
     private var settingsObserver: AnyCancellable?
 
     init() {
@@ -62,7 +59,6 @@ final class AgentStore: ObservableObject {
 
     deinit {
         pollingTask?.cancel()
-        notificationFeedbackTask?.cancel()
         cursorFileWatcher.stop()
     }
 
@@ -150,29 +146,21 @@ final class AgentStore: ObservableObject {
         Task { await refresh() }
     }
 
-    func completeOnboarding() {
+    func completeOnboarding() async {
+        if settings.notificationsEnabled {
+            notificationPermissionStatus = await notificationService.requestAuthorization()
+        } else {
+            notificationPermissionStatus = await notificationService.refreshAuthorizationStatus()
+        }
         settings.completeOnboarding()
         updateSettings()
-        refreshNotificationAuthorization()
     }
 
-    func sendTestNotification() {
-        notificationFeedbackTask?.cancel()
-        notificationTestResult = nil
-        isSendingTestNotification = true
+    func requestNotificationAuthorization() {
+        notificationPermissionStatus = .checking
         Task { [weak self] in
             guard let self else { return }
-            let result = await notificationService.sendTestNotification()
-            notificationTestResult = result
-            isSendingTestNotification = false
-            notificationPermissionStatus = await notificationService.refreshAuthorizationStatus()
-
-            guard result.isSuccess else { return }
-            notificationFeedbackTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(3))
-                guard !Task.isCancelled else { return }
-                self?.notificationTestResult = nil
-            }
+            notificationPermissionStatus = await notificationService.requestAuthorization()
         }
     }
 

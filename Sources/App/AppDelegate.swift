@@ -36,8 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         islandController = IslandPanelController(store: store, viewModel: viewModel)
         showOnboardingIfNeeded()
 
-        // Read the current setting without prompting at launch. Permission is
-        // requested in context when the user chooses Test notification.
+        // Read the current setting without prompting at launch. First-run setup
+        // requests permission only when notifications remain enabled.
         store.refreshNotificationAuthorization()
     }
 
@@ -45,10 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !store.settings.hasCompletedOnboarding else { return }
 
         let controller = OnboardingWindowController(settings: store.settings) { [weak self] in
-            guard let self else { return }
-            self.store.completeOnboarding()
-            self.onboardingController?.close()
-            self.onboardingController = nil
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.store.completeOnboarding()
+                self.onboardingController?.close()
+                self.onboardingController = nil
+            }
         }
         onboardingController = controller
         controller.present()
