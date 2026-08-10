@@ -12,6 +12,10 @@ Requirements: macOS 14+ and Xcode 15+.
 swift run LoopBar
 ```
 
+`swift run` is suitable for feature development, but macOS cannot register that
+raw executable as a login item. Test Launch at Login from an installed `.app`
+created with the packaging command below.
+
 Click the island to expand it. Click an agent row to open its source application. The gear button opens settings; the refresh button performs an immediate refresh; the power button quits LoopBar.
 
 On first launch, LoopBar presents a three-step setup assistant. It explains the local, read-only workflow, lets the user independently enable or disable Cursor, Codex, and Claude Code monitoring, and offers native Launch at Login registration. If notifications remain enabled, macOS asks for alert and sound permission when setup finishes. The choices remain editable in Settings; the assistant does not appear again after completion.
@@ -166,7 +170,24 @@ LoopBar reads local Cursor and Codex metadata only. It does not send prompts, ed
 
 ## Build a distributable app
 
-For signing, sandboxing, and reliable UserNotifications behavior, move `Sources/` into an Xcode macOS App target. The package has no third-party dependencies.
+Build the current source, inject the new release executable into the app bundle,
+sign it, and create the DMG with:
+
+```sh
+bash scripts/build-dmg.sh
+```
+
+The DMG includes an Applications shortcut. Drag LoopBar onto it and launch the
+installed `/Applications/LoopBar.app`; Launch at Login is intentionally disabled
+when the app runs directly from the mounted DMG. The script uses an ad-hoc
+signature by default. For a distributable build with reliable notifications,
+provide an Apple signing identity:
+
+```sh
+CODE_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" bash scripts/build-dmg.sh
+```
+
+The package has no third-party dependencies.
 
 ### App icon
 
