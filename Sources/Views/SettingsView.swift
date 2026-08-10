@@ -7,8 +7,9 @@ struct SettingsView: View {
     /// When embedded in the island, dismiss returns to the agents pane.
     var onDone: (() -> Void)?
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
-    @State private var notificationsExpanded = true
+    @State private var advancedExpanded = false
 
     private let refreshOptions: [Double] = [1, 2, 5, 6, 10, 15, 30, 60]
 
@@ -21,29 +22,28 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView(.vertical, showsIndicators: false) {
+                settingsOverview
+                    .padding(.bottom, 2)
+            }
+
             if isEmbedded {
-                embeddedContent
-            } else {
-                Form {
-                    settingsContent
+                Button(action: finish) {
+                    Text("Done")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
             }
         }
-        // Both layouts expose the interval picker; restart polling so a new
-        // interval applies now instead of after the in-flight sleep elapses.
-        .onChange(of: store.settings.refreshSeconds) { _, _ in store.updateSettings() }
-        .onChange(of: store.settings.notificationsEnabled) { _, enabled in
-            if enabled {
-                store.requestNotificationAuthorization()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            launchAtLogin.refresh()
-        }
-        .padding(.horizontal, isEmbedded ? 38 : 16)
-        .padding(.vertical, isEmbedded ? 22 : 16)
-        .frame(width: isEmbedded ? nil : 420)
+        .padding(.horizontal, isEmbedded ? 38 : 20)
+        .padding(.vertical, isEmbedded ? 20 : 18)
+        .frame(width: isEmbedded ? nil : 440)
+        .frame(minHeight: isEmbedded ? nil : 500)
         .navigationTitle("LoopBar settings")
         .toolbar {
             if !isEmbedded {
@@ -52,243 +52,324 @@ struct SettingsView: View {
                 }
             }
         }
+        // Apply polling changes immediately instead of waiting for the current
+        // interval to elapse.
+        .onChange(of: store.settings.refreshSeconds) { _, _ in store.updateSettings() }
+        .onChange(of: store.settings.notificationsEnabled) { _, enabled in
+            if enabled {
+                store.requestNotificationAuthorization()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin.refresh()
+            store.refreshNotificationAuthorization()
+        }
+        .onAppear {
+            store.refreshNotificationAuthorization()
+        }
     }
 
-    private var embeddedContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ScrollView(.vertical, showsIndicators: false) {
-                embeddedSettingsSections
-                    .padding(.bottom, 2)
+    private var settingsOverview: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Settings")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                Text("Choose what LoopBar watches and when it gets your attention.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            Button(action: finish) {
-                Text("Done")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            settingsCard(
+                title: "Monitored apps",
+                subtitle: "Show activity from these local tools",
+                symbol: "rectangle.3.group.fill",
+                color: .purple
+            ) {
+                sourceToggle(
+                    title: "Cursor",
+                    subtitle: "Composer activity",
+                    icon: "cursorarrow.rays",
+                    color: .purple,
+                    isOn: $store.settings.cursorEnabled
+                )
+                settingDivider
+                sourceToggle(
+                    title: "Codex",
+                    subtitle: "Task activity",
+                    icon: "sparkles",
+                    color: .blue,
+                    isOn: $store.settings.codexEnabled
+                )
+                settingDivider
+                sourceToggle(
+                    title: "Claude Code",
+                    subtitle: "Terminal session activity",
+                    icon: "sparkle",
+                    color: .claudeRunning,
+                    isOn: $store.settings.claudeEnabled
+                )
+            }
+
+            settingsCard(
+                title: "App behavior",
+                subtitle: "The controls you are most likely to change",
+                symbol: "switch.2",
+                color: .green
+            ) {
+                trailingPreferenceToggle(
+                    title: "Launch at login",
+                    subtitle: "Start LoopBar automatically",
+                    icon: "power",
+                    color: .green,
+                    isOn: launchAtLoginBinding
+                )
+                .disabled(!launchAtLogin.isAvailable)
+
+                launchAtLoginGuidance
+                settingDivider
+
+                trailingPreferenceToggle(
+                    title: "Notifications",
+                    subtitle: "Alert me when work needs attention",
+                    icon: "bell.fill",
+                    color: .blue,
+                    isOn: $store.settings.notificationsEnabled
+                )
+
+                if store.settings.notificationsEnabled {
+                    permissionGuidance
+                }
+            }
+
+            advancedSettings
+        }
+    }
+
+    private var advancedSettings: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(disclosureAnimation) {
+                    advancedExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 30)
+                        .background(.primary.opacity(0.055), in: Circle())
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Advanced")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Refresh timing and notification types")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(advancedExpanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-        }
-    }
+            .accessibilityLabel(advancedExpanded ? "Collapse advanced settings" : "Expand advanced settings")
 
-    private var embeddedSettingsSections: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "cursorarrow.rays")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.purple)
-                    .frame(width: 30, height: 30)
-                    .background(.purple.opacity(0.16), in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Local agents")
-                        .font(.system(size: 15, weight: .bold))
-                    Text("Monitors Cursor, Codex, and Claude Code")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.52))
-                }
-                Spacer()
-                Text("v\(AppVersion.current)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.52))
-                    .fixedSize()
-            }
+            if advancedExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    settingDivider
 
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Text("Refresh interval")
-                        .font(.system(size: 13, weight: .semibold))
-                    Spacer()
-                    Picker("Refresh interval", selection: $store.settings.refreshSeconds) {
-                        ForEach(refreshOptions, id: \.self) { seconds in
-                            Text(seconds < 60 ? "\(Int(seconds)) sec" : "1 min")
-                                .tag(seconds)
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Refresh interval")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("How often LoopBar checks for changes")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        Picker("Refresh interval", selection: $store.settings.refreshSeconds) {
+                            ForEach(refreshOptions, id: \.self) { seconds in
+                                Text(seconds < 60 ? "\(Int(seconds)) sec" : "1 min")
+                                    .tag(seconds)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .controlSize(.small)
+                    }
+
+                    if store.settings.notificationsEnabled {
+                        settingDivider
+
+                        VStack(alignment: .leading, spacing: 9) {
+                            Text("Notify me when")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+
+                            compactToggle(
+                                title: "Work completes",
+                                icon: "checkmark.circle.fill",
+                                color: .green,
+                                isOn: $store.settings.completionNotifications
+                            )
+                            compactToggle(
+                                title: "Work needs attention",
+                                icon: "hand.raised.fill",
+                                color: .yellow,
+                                isOn: $store.settings.attentionNotifications
+                            )
+                            compactToggle(
+                                title: "Work fails",
+                                icon: "xmark.octagon.fill",
+                                color: .red,
+                                isOn: $store.settings.failureNotifications
+                            )
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
                 }
+                .padding(.top, 12)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
-
-            sourceToggles
-
-            launchAtLoginPreference
-
-            notificationPreferences
+        }
+        .padding(12)
+        .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(.primary.opacity(0.08), lineWidth: 0.8)
         }
     }
 
-    @ViewBuilder
-    private var settingsContent: some View {
-        Section("Local agents") {
-            Text("Monitoring your three most recently updated Cursor composers and Codex tasks.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            LabeledContent("Version", value: AppVersion.current)
-        }
-        Section("Refresh") {
-            Picker("Refresh interval", selection: $store.settings.refreshSeconds) {
-                ForEach(refreshOptions, id: \.self) { seconds in
-                    Text(seconds < 60 ? "\(Int(seconds)) seconds" : "1 minute")
-                        .tag(seconds)
+    private func settingsCard<Content: View>(
+        title: String,
+        subtitle: String,
+        symbol: String,
+        color: Color,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(color)
+                    .frame(width: 30, height: 30)
+                    .background(color.opacity(0.14), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .pickerStyle(.menu)
+
+            content()
         }
-        Section("General") {
-            Toggle("Launch LoopBar at login", isOn: launchAtLoginBinding)
-                .disabled(!launchAtLogin.isAvailable)
-            launchAtLoginGuidance(embedded: false)
+        .padding(12)
+        .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(.primary.opacity(0.08), lineWidth: 0.8)
         }
-        .toggleStyle(.switch)
-        Section("Sources") {
-            Toggle("Monitor Cursor", isOn: $store.settings.cursorEnabled)
-            Toggle("Monitor Codex", isOn: $store.settings.codexEnabled)
-            Toggle("Monitor Claude Code", isOn: $store.settings.claudeEnabled)
-            Text("Disabled sources are not polled and do not produce errors or notifications.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    }
+
+    private func sourceToggle(
+        title: String,
+        subtitle: String,
+        icon: String,
+        color: Color,
+        isOn: Binding<Bool>
+    ) -> some View {
+        trailingPreferenceToggle(
+            title: title,
+            subtitle: subtitle,
+            icon: icon,
+            color: color,
+            isOn: isOn
+        )
+        .onChange(of: isOn.wrappedValue) { _, _ in store.updateSettings() }
+    }
+
+    private func trailingPreferenceToggle(
+        title: String,
+        subtitle: String,
+        icon: String,
+        color: Color,
+        isOn: Binding<Bool>
+    ) -> some View {
+        HStack(spacing: 12) {
+            preferenceLabel(title: title, subtitle: subtitle, icon: icon, color: color)
+
+            Spacer(minLength: 16)
+
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .accessibilityLabel(title)
         }
-        .toggleStyle(.switch)
-        Section("Notifications") {
-            Toggle("Enable notifications", isOn: $store.settings.notificationsEnabled)
-            if store.settings.notificationsEnabled {
-                DisclosureGroup("Notification types", isExpanded: $notificationsExpanded) {
-                    Toggle("Completion notifications", isOn: $store.settings.completionNotifications)
-                    Toggle("Needs-attention notifications", isOn: $store.settings.attentionNotifications)
-                    Toggle("Failure notifications", isOn: $store.settings.failureNotifications)
-                }
-                permissionGuidance(embedded: false)
-            }
-            if !store.settings.notificationsEnabled {
-                Text("Notification options are hidden while notifications are disabled.")
-                    .font(.caption)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func preferenceLabel(
+        title: String,
+        subtitle: String,
+        icon: String,
+        color: Color
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 28, height: 28)
+                .background(color.opacity(0.14), in: Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(subtitle)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
-        .toggleStyle(.switch)
-        .onAppear { store.refreshNotificationAuthorization() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            store.refreshNotificationAuthorization()
-        }
     }
 
-    private var sourceToggles: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Sources")
-                .font(.system(size: 12, weight: .medium))
-            sourceToggle(
-                title: "Cursor",
-                subtitle: "Composer activity",
-                icon: "cursorarrow.rays",
-                color: .purple,
-                isOn: $store.settings.cursorEnabled
-            )
-            sourceToggle(
-                title: "Codex",
-                subtitle: "Task activity",
-                icon: "sparkles",
-                color: .blue,
-                isOn: $store.settings.codexEnabled
-            )
-            sourceToggle(
-                title: "Claude Code",
-                subtitle: "Terminal session activity",
-                icon: "sparkle",
-                color: .orange,
-                isOn: $store.settings.claudeEnabled
-            )
-            Text("Disabled sources are not polled or shown in LoopBar.")
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.48))
-        }
-        .toggleStyle(.switch)
-        .onChange(of: store.settings.cursorEnabled) { _, _ in store.updateSettings() }
-        .onChange(of: store.settings.codexEnabled) { _, _ in store.updateSettings() }
-        .onChange(of: store.settings.claudeEnabled) { _, _ in store.updateSettings() }
-    }
-
-    private var notificationPreferences: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Notifications")
+    private func compactToggle(
+        title: String,
+        icon: String,
+        color: Color,
+        isOn: Binding<Bool>
+    ) -> some View {
+        HStack(spacing: 12) {
+            Label {
+                Text(title)
                     .font(.system(size: 12, weight: .medium))
-                Spacer()
-                Toggle("", isOn: $store.settings.notificationsEnabled)
-                    .labelsHidden()
+            } icon: {
+                Image(systemName: icon)
+                    .foregroundStyle(color)
             }
-            .contentShape(Rectangle())
 
-            if store.settings.notificationsEnabled {
-                permissionGuidance(embedded: true)
+            Spacer(minLength: 16)
 
-                DisclosureGroup("Notification types", isExpanded: $notificationsExpanded) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        preferenceToggle(
-                            title: "Completed work",
-                            subtitle: "",
-                            icon: "checkmark.circle.fill",
-                            color: .green,
-                            isOn: $store.settings.completionNotifications
-                        )
-                        preferenceToggle(
-                            title: "Needs your attention",
-                            subtitle: "",
-                            icon: "hand.raised.fill",
-                            color: .yellow,
-                            isOn: $store.settings.attentionNotifications
-                        )
-                        preferenceToggle(
-                            title: "Failures",
-                            subtitle: "",
-                            icon: "xmark.octagon.fill",
-                            color: .red,
-                            isOn: $store.settings.failureNotifications
-                        )
-                    }
-                }
-            } else {
-                Text("Notification options are hidden while disabled.")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.48))
-            }
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .accessibilityLabel(title)
         }
-        .toggleStyle(.switch)
-        .onAppear { store.refreshNotificationAuthorization() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            store.refreshNotificationAuthorization()
-        }
+        .frame(maxWidth: .infinity)
     }
 
-    private var launchAtLoginPreference: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: "power")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.green)
-                    .frame(width: 28, height: 28)
-                    .background(.green.opacity(0.16), in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Launch at Login")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Start LoopBar automatically after sign-in")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.48))
-                }
-
-                Spacer(minLength: 8)
-                Toggle("", isOn: launchAtLoginBinding)
-                    .labelsHidden()
-                    .disabled(!launchAtLogin.isAvailable)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-            launchAtLoginGuidance(embedded: true)
-        }
-        .toggleStyle(.switch)
+    private var settingDivider: some View {
+        Divider()
+            .overlay(.primary.opacity(0.07))
     }
 
     private var launchAtLoginBinding: Binding<Bool> {
@@ -299,16 +380,12 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func launchAtLoginGuidance(embedded: Bool) -> some View {
+    private var launchAtLoginGuidance: some View {
         if let message = launchAtLoginMessage {
             VStack(alignment: .leading, spacing: 4) {
                 Text(message)
                     .font(.caption2)
-                    .foregroundStyle(
-                        launchAtLogin.errorMessage == nil
-                            ? (embedded ? Color.white.opacity(0.56) : Color.secondary)
-                            : Color.red
-                    )
+                    .foregroundStyle(launchAtLogin.errorMessage == nil ? Color.secondary : Color.red)
                 if launchAtLogin.requiresApproval {
                     Button("Open Login Items Settings") {
                         launchAtLogin.openLoginItemsSettings()
@@ -317,7 +394,7 @@ struct SettingsView: View {
                     .buttonStyle(.link)
                 }
             }
-            .padding(.horizontal, embedded ? 10 : 0)
+            .padding(.leading, 38)
         }
     }
 
@@ -332,44 +409,41 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func permissionGuidance(embedded: Bool) -> some View {
+    private var permissionGuidance: some View {
         switch store.notificationPermissionStatus {
         case .denied:
             permissionCard(
                 title: "Notifications are turned off",
-                message: "Allow LoopBar notifications in System Settings to receive agent updates.",
+                message: "Allow LoopBar notifications in System Settings.",
                 symbol: "bell.slash.fill",
                 color: .orange,
-                embedded: embedded,
-                showsSettingsButton: true
+                actionTitle: "Open System Settings",
+                action: store.openNotificationSettings
             )
         case .alertsDisabled:
             permissionCard(
                 title: "Notification banners are off",
-                message: "Choose Banners for LoopBar in System Settings so alerts appear on screen.",
+                message: "Choose Banners for LoopBar in System Settings.",
                 symbol: "rectangle.on.rectangle.slash.fill",
                 color: .orange,
-                embedded: embedded,
-                showsSettingsButton: true
+                actionTitle: "Open System Settings",
+                action: store.openNotificationSettings
             )
         case .notRequested:
             permissionCard(
-                title: "Notification permission required",
-                message: "Allow LoopBar to show agent updates and completion alerts.",
+                title: "Permission required",
+                message: "Allow LoopBar to show agent updates.",
                 symbol: "bell.badge.fill",
                 color: .blue,
-                embedded: embedded,
-                showsSettingsButton: false,
-                showsAuthorizationButton: true
+                actionTitle: "Allow notifications",
+                action: store.requestNotificationAuthorization
             )
         case let .unavailable(message):
             permissionCard(
                 title: "Notifications unavailable",
                 message: message,
                 symbol: "exclamationmark.triangle.fill",
-                color: .orange,
-                embedded: embedded,
-                showsSettingsButton: false
+                color: .orange
             )
         case .checking, .allowed:
             EmptyView()
@@ -381,111 +455,43 @@ struct SettingsView: View {
         message: String,
         symbol: String,
         color: Color,
-        embedded: Bool,
-        showsSettingsButton: Bool,
-        showsAuthorizationButton: Bool = false
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil
     ) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 9) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(color)
-                .frame(width: 26, height: 26)
-                .background(color.opacity(0.16), in: Circle())
+                .frame(width: 24, height: 24)
+                .background(color.opacity(0.14), in: Circle())
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                 Text(message)
                     .font(.caption2)
-                    .foregroundStyle(embedded ? .white.opacity(0.56) : .secondary)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if showsSettingsButton {
-                    Button("Open System Settings") {
-                        store.openNotificationSettings()
-                    }
-                    .font(.caption2.weight(.semibold))
-                    .buttonStyle(.link)
-                }
-                if showsAuthorizationButton {
-                    Button("Allow notifications") {
-                        store.requestNotificationAuthorization()
-                    }
-                    .font(.caption2.weight(.semibold))
-                    .buttonStyle(.link)
+                if let actionTitle, let action {
+                    Button(actionTitle, action: action)
+                        .font(.caption2.weight(.semibold))
+                        .buttonStyle(.link)
                 }
             }
+
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .background(color.opacity(embedded ? 0.09 : 0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(9)
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(color.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(color.opacity(0.16), lineWidth: 0.8)
         }
+        .padding(.top, 2)
     }
 
-    private func preferenceToggle(
-        title: String,
-        subtitle: String,
-        icon: String,
-        color: Color,
-        isOn: Binding<Bool>
-    ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(color)
-                .frame(width: 28, height: 28)
-                .background(color.opacity(0.16), in: Circle())
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.48))
-                }
-            }
-
-            Spacer(minLength: 8)
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    private func sourceToggle(
-        title: String,
-        subtitle: String,
-        icon: String,
-        color: Color,
-        isOn: Binding<Bool>
-    ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(color)
-                .frame(width: 28, height: 28)
-                .background(color.opacity(0.16), in: Circle())
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.48))
-            }
-
-            Spacer(minLength: 8)
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    private var disclosureAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.2)
     }
 
     private func finish() {

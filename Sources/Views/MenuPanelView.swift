@@ -6,6 +6,8 @@ struct MenuPanelView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var viewModel: IslandViewModel
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private var expanded: Bool { viewModel.isExpandedChrome }
 
     var body: some View {
@@ -29,6 +31,7 @@ struct MenuPanelView: View {
         .onHover { hovering in
             viewModel.setHovered(hovering)
         }
+        .animation(chromeAnimation, value: expanded)
         .preferredColorScheme(.dark)
     }
 
@@ -51,7 +54,9 @@ struct MenuPanelView: View {
                 Task { await store.refresh() }
             }
             IslandIconButton(symbol: "gearshape") {
-                viewModel.selectContent(.settings)
+                withAnimation(contentAnimation) {
+                    viewModel.selectContent(.settings)
+                }
             }
             IslandIconButton(symbol: "power") {
                 NSApp.terminate(nil)
@@ -66,6 +71,14 @@ struct MenuPanelView: View {
             .fill(Color.black)
             .frame(height: 1)
             .padding(.horizontal, 28)
+    }
+
+    private var chromeAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: 0.18)
+    }
+
+    private var contentAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.2)
     }
 }
 

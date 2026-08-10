@@ -5,6 +5,8 @@ struct IslandRootView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var viewModel: IslandViewModel
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private var expanded: Bool { viewModel.isExpandedChrome }
 
     var body: some View {
@@ -20,5 +22,9 @@ struct IslandRootView: View {
                 alignment: .top
             )
             .padding(.bottom, IslandMetrics.shadowPadding(expanded: expanded))
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.18),
+                value: expanded
+            )
     }
 }

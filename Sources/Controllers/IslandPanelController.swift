@@ -79,22 +79,28 @@ final class IslandPanelController {
             .otherMouseDown
         ]
 
-        if let localMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseDownEvents) { [weak self] event in
-            let screenLocation = NSEvent.mouseLocation
-            Task { @MainActor [weak self] in
-                self?.handleOutsideClick(at: screenLocation)
+        if let localMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: mouseDownEvents,
+            handler: { [weak self] event in
+                let screenLocation = NSEvent.mouseLocation
+                Task { @MainActor [weak self] in
+                    self?.handleOutsideClick(at: screenLocation)
+                }
+                return event
             }
-            return event
-        } {
+        ) {
             outsideClickMonitors.append(localMonitor)
         }
 
-        if let globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseDownEvents) { [weak self] _ in
-            let screenLocation = NSEvent.mouseLocation
-            Task { @MainActor [weak self] in
-                self?.handleOutsideClick(at: screenLocation)
+        if let globalMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: mouseDownEvents,
+            handler: { [weak self] _ in
+                let screenLocation = NSEvent.mouseLocation
+                Task { @MainActor [weak self] in
+                    self?.handleOutsideClick(at: screenLocation)
+                }
             }
-        } {
+        ) {
             outsideClickMonitors.append(globalMonitor)
         }
     }
@@ -138,7 +144,7 @@ final class IslandPanelController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self, self.viewModel.isExpandedChrome else { return }
-                self.reposition(animated: false)
+                self.reposition(animated: true)
             }
             .store(in: &cancellables)
 
@@ -147,7 +153,7 @@ final class IslandPanelController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self, self.viewModel.isExpandedChrome else { return }
-                self.reposition(animated: false)
+                self.reposition(animated: true)
             }
             .store(in: &cancellables)
 
@@ -156,7 +162,7 @@ final class IslandPanelController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self, self.viewModel.isExpandedChrome else { return }
-                self.reposition(animated: false)
+                self.reposition(animated: true)
             }
             .store(in: &cancellables)
     }
@@ -174,23 +180,13 @@ final class IslandPanelController {
         )
         let frame = IslandGeometry.panelFrame(for: contentSize, on: screen)
 
-        if animated {
-            let currentFrame = panel.frame
-            let startWidth = currentFrame.width > 0 ? currentFrame.width : frame.width
-            let startFrame = CGRect(
-                x: frame.midX - (startWidth / 2),
-                y: frame.minY,
-                width: startWidth,
-                height: frame.height
-            )
-
-            // Keep the island glued to the notch: snap vertical changes immediately,
-            // then animate only the horizontal expansion/collapse.
-            panel.setFrame(startFrame, display: true)
-
+        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.16
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                // Both frames share the same top edge, so interpolating the
+                // complete frame grows the island away from the notch without
+                // the outer panel jumping ahead of its SwiftUI content.
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 panel.animator().setFrame(frame, display: true)
             }
         } else {

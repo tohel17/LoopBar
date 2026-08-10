@@ -101,9 +101,9 @@ struct CompactIslandView: View {
     /// used as the neutral shared accent; green remains reserved for done.
     private var runningColor: Color {
         let runningSources = Set(store.agents.filter { $0.status == .running }.map(\.source))
-        if runningSources.contains(.codex) { return .blue }
-        if runningSources.contains(.cursor) { return .purple }
-        if runningSources.contains(.claude) { return .claudeRunning }
+        if runningSources.contains(.codex) { return AgentSource.codex.accentColor }
+        if runningSources.contains(.cursor) { return AgentSource.cursor.accentColor }
+        if runningSources.contains(.claude) { return AgentSource.claude.accentColor }
         return .blue
     }
 

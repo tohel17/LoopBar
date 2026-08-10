@@ -5,15 +5,24 @@ struct ExpandedIslandView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var viewModel: IslandViewModel
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        switch viewModel.content {
-        case .agents:
-            agentsBody
-        case .settings:
-            settingsBody
-        case .logs:
-            logsBody
+        ZStack {
+            switch viewModel.content {
+            case .agents:
+                agentsBody
+                    .transition(paneTransition)
+            case .settings:
+                settingsBody
+                    .transition(paneTransition)
+            case .logs:
+                logsBody
+                    .transition(paneTransition)
+            }
         }
+        .clipped()
+        .animation(paneAnimation, value: viewModel.content)
     }
 
     // MARK: - Agents
@@ -49,10 +58,12 @@ struct ExpandedIslandView: View {
                     LazyVStack(spacing: 6) {
                         ForEach(store.agents) { agent in
                             AgentRowView(agent: agent)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                         }
                     }
                     .padding(.horizontal, 28)
                     .padding(.vertical, 10)
+                    .animation(listAnimation, value: store.agents)
                 }
                 .frame(height: IslandMetrics.listHeight(agentCount: store.agents.count))
             }
@@ -71,7 +82,9 @@ struct ExpandedIslandView: View {
 
     private var settingsBody: some View {
         SettingsView(store: store) {
-            viewModel.selectContent(.agents)
+            withAnimation(paneAnimation) {
+                viewModel.selectContent(.agents)
+            }
         }
         .frame(maxWidth: .infinity)
         .frame(height: IslandMetrics.settingsBodyHeight)
@@ -85,5 +98,19 @@ struct ExpandedIslandView: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 28)
+    }
+
+    private var paneTransition: AnyTransition {
+        reduceMotion
+            ? .identity
+            : .opacity.combined(with: .scale(scale: 0.985, anchor: .top))
+    }
+
+    private var paneAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.2)
+    }
+
+    private var listAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: 0.18)
     }
 }

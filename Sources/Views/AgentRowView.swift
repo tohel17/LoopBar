@@ -4,71 +4,133 @@ import SwiftUI
 struct AgentRowView: View {
     let agent: CursorAgent
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { timeline in
-            row(now: timeline.date)
+            Button {
+                AgentOpener.open(agent)
+            } label: {
+                row(now: timeline.date)
+            }
+            .buttonStyle(.plain)
+            .scaleEffect(isHovering && !reduceMotion ? 1.008 : 1)
+            .onHover { hovering in
+                withAnimation(hoverAnimation) {
+                    isHovering = hovering
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityLabel(now: timeline.date))
+            .accessibilityHint("Opens this task in \(agent.source.rawValue)")
+            .help("Open in \(agent.source.rawValue)")
         }
     }
 
     private func row(now: Date) -> some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 11) {
             ZStack {
-                Circle().fill(color.opacity(0.16))
+                Circle()
+                    .fill(statusColor.opacity(0.14))
+                Circle()
+                    .strokeBorder(agent.source.accentColor.opacity(0.30), lineWidth: 0.8)
                 Image(systemName: agent.status.symbol)
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(color)
+                    .foregroundStyle(statusColor)
+                    .symbolEffect(
+                        .pulse,
+                        options: .repeating,
+                        value: !reduceMotion && agent.status == .running
+                    )
             }
-            .frame(width: 30, height: 30)
+            .frame(width: 32, height: 32)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(agent.title)
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
+
                     Spacer(minLength: 0)
-                    Text(agent.source.rawValue)
+
+                    Label(agent.source.rawValue, systemImage: agent.source.symbol)
                         .font(.system(size: 9, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.78))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.white.opacity(0.10), in: Capsule())
+                        .foregroundStyle(agent.source.accentColor.opacity(0.95))
+                        .labelStyle(.titleAndIcon)
+                        .fixedSize()
+
                     Text(AgentElapsedText.statusLabel(for: agent, now: now))
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundStyle(color.opacity(0.9))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(statusColor.opacity(0.95))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(color.opacity(0.14), in: Capsule())
+                        .background(statusColor.opacity(0.13), in: Capsule())
+                        .fixedSize()
                 }
+
                 Text(agent.latestStatus)
                     .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.white.opacity(0.54))
                     .lineLimit(1)
+
                 if let progress = agent.progress, agent.status == .running {
                     ProgressView(value: progress)
-                        .tint(color)
-                        .scaleEffect(y: 0.6, anchor: .center)
+                        .tint(agent.source.accentColor)
+                        .scaleEffect(y: 0.58, anchor: .center)
+                        .animation(progressAnimation, value: progress)
+                        .accessibilityLabel("Progress")
+                        .accessibilityValue("\(Int(progress * 100)) percent")
                 }
             }
         }
-        .padding(.horizontal, 11)
+        .padding(.horizontal, 12)
         .padding(.vertical, 11)
-        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(rowGradient)
+                .overlay {
+                    // A dark wash keeps text contrast stable while preserving
+                    // the source color across the whole information surface.
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .fill(.black.opacity(isHovering ? 0.28 : 0.38))
+                }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .strokeBorder(.white.opacity(0.09), lineWidth: 0.8)
+                .strokeBorder(borderGradient, lineWidth: isHovering ? 1.0 : 0.8)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onTapGesture { AgentOpener.open(agent) }
+        .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
     }
 
-    private var color: Color {
+    private var rowGradient: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: agent.source.accentColor.opacity(isHovering ? 0.44 : 0.34), location: 0),
+                .init(color: agent.source.secondaryAccentColor.opacity(isHovering ? 0.24 : 0.17), location: 0.58),
+                .init(color: statusColor.opacity(0.14), location: 1)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var borderGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                agent.source.accentColor.opacity(isHovering ? 0.52 : 0.30),
+                agent.source.secondaryAccentColor.opacity(0.20),
+                .white.opacity(0.10)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    private var statusColor: Color {
         switch agent.status {
         case .running:
-            switch agent.source {
-            case .cursor: .purple
-            case .codex: .blue
-            case .claude: .claudeRunning
-            }
+            agent.source.accentColor
         case .queued: .yellow
         case .waitingForApproval: .orange
         case .waitingForInput: .cyan
@@ -79,4 +141,22 @@ struct AgentRowView: View {
         }
     }
 
+    private var hoverAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: 0.16)
+    }
+
+    private var progressAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.24)
+    }
+
+    private func accessibilityLabel(now: Date) -> String {
+        [
+            agent.title,
+            agent.source.rawValue,
+            AgentElapsedText.statusLabel(for: agent, now: now),
+            agent.latestStatus
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: ", ")
+    }
 }
