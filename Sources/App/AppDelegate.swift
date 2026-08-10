@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let store = AgentStore()
     private(set) lazy var viewModel = IslandViewModel(store: store)
     private var islandController: IslandPanelController?
+    private var onboardingController: OnboardingWindowController?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Register the bundle before anything contacts UserNotifications.
@@ -33,10 +34,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         NSApp.setActivationPolicy(.accessory)
         islandController = IslandPanelController(store: store, viewModel: viewModel)
+        showOnboardingIfNeeded()
 
-        // Read the current setting without prompting at launch. Permission is
-        // requested in context when the user chooses Test notification.
+        // Read the current setting without prompting at launch. First-run setup
+        // requests permission only when notifications remain enabled.
         store.refreshNotificationAuthorization()
+    }
+
+    private func showOnboardingIfNeeded() {
+        guard !store.settings.hasCompletedOnboarding else { return }
+
+        let controller = OnboardingWindowController(store: store) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.store.completeOnboarding()
+                self.onboardingController?.close()
+                self.onboardingController = nil
+            }
+        }
+        onboardingController = controller
+        controller.present()
     }
 
     /// Ensure Launch Services / Notification Center can resolve LoopBar's logo
