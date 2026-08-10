@@ -32,12 +32,15 @@ struct AgentRowView: View {
         HStack(alignment: .center, spacing: 11) {
             ZStack {
                 Circle()
-                    .fill(statusColor.opacity(0.14))
+                    .fill(agent.source.accentColor.opacity(0.14))
                 Circle()
-                    .strokeBorder(agent.source.accentColor.opacity(0.30), lineWidth: 0.8)
-                Image(systemName: agent.status.symbol)
+                    .strokeBorder(
+                        agent.source.accentColor.opacity(agent.status == .running ? 0.72 : 0.30),
+                        lineWidth: agent.status == .running ? 1.2 : 0.8
+                    )
+                Image(systemName: agent.source.symbol)
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(statusColor)
+                    .foregroundStyle(agent.source.accentColor)
                     .symbolEffect(
                         .pulse,
                         options: .repeating,
@@ -45,6 +48,18 @@ struct AgentRowView: View {
                     )
             }
             .frame(width: 32, height: 32)
+            .overlay(alignment: .bottomTrailing) {
+                if agent.status.needsAttention {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 8, height: 8)
+                        .overlay {
+                            Circle()
+                                .strokeBorder(.black.opacity(0.75), lineWidth: 1.5)
+                        }
+                        .accessibilityHidden(true)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
@@ -89,16 +104,13 @@ struct AgentRowView: View {
         .background {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .fill(rowGradient)
-                .overlay {
-                    // A dark wash keeps text contrast stable while preserving
-                    // the source color across the whole information surface.
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .fill(.black.opacity(isHovering ? 0.28 : 0.38))
-                }
         }
         .overlay {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .strokeBorder(borderGradient, lineWidth: isHovering ? 1.0 : 0.8)
+                .strokeBorder(
+                    .white.opacity(isHovering ? 0.16 : 0.10),
+                    lineWidth: isHovering ? 1.0 : 0.8
+                )
         }
         .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
     }
@@ -106,24 +118,12 @@ struct AgentRowView: View {
     private var rowGradient: LinearGradient {
         LinearGradient(
             stops: [
-                .init(color: agent.source.accentColor.opacity(isHovering ? 0.44 : 0.34), location: 0),
-                .init(color: agent.source.secondaryAccentColor.opacity(isHovering ? 0.24 : 0.17), location: 0.58),
-                .init(color: statusColor.opacity(0.14), location: 1)
+                .init(color: agent.source.accentColor.opacity(isHovering ? 0.24 : 0.18), location: 0),
+                .init(color: agent.source.accentColor.opacity(isHovering ? 0.12 : 0.09), location: 0.58),
+                .init(color: agent.source.accentColor.opacity(isHovering ? 0.08 : 0.05), location: 1)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
-        )
-    }
-
-    private var borderGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                agent.source.accentColor.opacity(isHovering ? 0.52 : 0.30),
-                agent.source.secondaryAccentColor.opacity(0.20),
-                .white.opacity(0.10)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
         )
     }
 
