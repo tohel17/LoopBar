@@ -23,6 +23,44 @@ Your coding agents can keep working in different apps, windows, and terminals. L
 
 LoopBar is local, read-only, and built for macOS. There is no account to create, no API key to configure, and no cloud dashboard between you and your work.
 
+## See LoopBar in action
+
+<p align="center">
+  <img src="docs/media/loopbar-agents.png" width="820" alt="LoopBar expanded with sample Cursor, Codex, and Claude Code tasks">
+</p>
+
+<p align="center">
+  Follow every agent in one view, with clear source colors, live status, elapsed time, progress, and attention signals.
+</p>
+
+### Quiet by default
+
+<p align="center">
+  <img src="docs/media/loopbar-compact.png" width="704" alt="LoopBar compact island showing one running agent and one task waiting for attention">
+</p>
+
+The compact island keeps only the two signals that matter most: what is running and what needs you.
+
+### Set up in seconds
+
+<p align="center">
+  <a href="docs/media/loopbar-onboarding.mp4">
+    <img src="docs/media/loopbar-onboarding-preview.jpg" width="760" alt="LoopBar first-launch setup assistant">
+  </a>
+</p>
+
+<p align="center">
+  <a href="docs/media/loopbar-onboarding.mp4"><strong>▶ Watch the 6-second onboarding walkthrough</strong></a>
+</p>
+
+<details>
+  <summary><strong>See LoopBar settings</strong></summary>
+  <br>
+  <p align="center">
+    <img src="docs/media/loopbar-settings.png" width="680" alt="LoopBar settings for monitored apps, launch behavior, notifications, and updates">
+  </p>
+</details>
+
 ## One glance. Every agent.
 
 - **See what is working** — follow active Cursor composers, Codex tasks, and Claude Code sessions from one compact island.
