@@ -93,11 +93,11 @@ LoopBar observes local application state without sending prompts, changing tasks
 
 - No LoopBar account
 - No API keys
-- No analytics or remote monitoring service
+- Anonymous usage analytics for aggregate installation counts
 - No prompts or project content uploaded by LoopBar
 - Read-only access to local task metadata
 
-LoopBar only uses the network for optional, signed app updates. Sparkle checks the public update feed and downloads releases from GitHub when updates are enabled.
+Firebase records app opens and sessions, app and macOS versions, and basic device data. LoopBar also records an `app_active` event so aggregate active installations can be counted. It never sends prompts, project names, filenames, task details, or agent activity. LoopBar otherwise uses the network only for optional, signed app updates. Sparkle checks the public update feed and downloads releases from GitHub when updates are enabled.
 
 ## Install LoopBar
 

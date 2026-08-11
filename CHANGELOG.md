@@ -1,5 +1,17 @@
 # LoopBar changelog
 
+## 1.0.0 — 2026-08-11
+
+### Added
+
+- Added Firebase Analytics to measure aggregate active installations and app launches.
+- Added an `app_active` event for tracking LoopBar usage across releases.
+
+### Changed
+
+- Updated the privacy documentation to describe the limited app, session, version, macOS, and device data collected by Firebase.
+- Packaged Firebase configuration and analytics support in production DMG builds.
+
 ## 0.9.8 — 2026-08-11
 
 ### Added
@@ -36,7 +48,7 @@
 
 ## Feature overview
 
-LoopBar is a native macOS notch-island monitor for local Cursor, Codex, and Claude Code work. It is read-only, requires no API keys, and does not make network requests.
+LoopBar is a native macOS notch-island monitor for local Cursor, Codex, and Claude Code work. It is read-only and requires no API keys. Network access is limited to anonymous usage analytics and signed app updates.
 
 ## Island UI
 

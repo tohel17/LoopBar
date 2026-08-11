@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AnalyticsService.shared.start()
         updater.start()
         CursorHookCleanup.removeLegacyInstallation()
         if NotificationService.canUseUserNotifications {

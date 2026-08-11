@@ -56,6 +56,9 @@ ditto "$built_framework" "$staged_app/Contents/Frameworks/Sparkle.framework"
 install -m 644 \
     "$repo_root/Sources/Resources/NotificationLogo.png" \
     "$staged_app/Contents/Resources/NotificationLogo.png"
+install -m 644 \
+    "$repo_root/Sources/Resources/GoogleService-Info.plist" \
+    "$staged_app/Contents/Resources/GoogleService-Info.plist"
 
 # SwiftPM links binary frameworks beside its executable. Packaged apps keep
 # them in Contents/Frameworks, so add the standard application-bundle rpath.
