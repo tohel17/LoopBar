@@ -189,6 +189,40 @@ CODE_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" bash scripts/bui
 
 The package has no third-party dependencies.
 
+### One-command notarized release
+
+After installing a Developer ID Application certificate and saving a
+`notarytool` Keychain profile named `LoopBar`, run:
+
+```sh
+bash scripts/release.sh
+```
+
+The release script auto-detects the certificate when exactly one Developer ID
+Application identity is installed. It reads the release version from
+`Sources/Resources/version.txt`, updates `CFBundleShortVersionString`, increments
+`CFBundleVersion`, builds and signs the app, creates and signs the DMG, waits for
+Apple notarization, staples and validates the ticket, runs a Gatekeeper
+assessment, and prints the final SHA-256 checksum.
+
+If the Keychain profile has a different name or multiple Developer ID
+certificates are installed, specify them explicitly:
+
+```sh
+NOTARY_KEYCHAIN_PROFILE="Company Notary" \
+CODE_SIGN_IDENTITY="CERTIFICATE_SHA1_HASH" \
+  bash scripts/release.sh
+```
+
+Create the Keychain profile once, without placing the app-specific password in
+the repository or shell history:
+
+```sh
+xcrun notarytool store-credentials "LoopBar" \
+  --apple-id "you@example.com" \
+  --team-id "TEAMID"
+```
+
 ### App icon
 
 The mascot icon master is [`Assets/LoopBar-AppIcon-v7.png`](Assets/LoopBar-AppIcon-v7.png). Packaging needs a loose `.icns` (Finder / older macOS) and a compiled `Assets.car` + `CFBundleIconName` for Notification Center.

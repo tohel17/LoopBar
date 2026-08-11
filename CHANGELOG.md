@@ -1,6 +1,27 @@
-# LoopBar — feature list
+# LoopBar changelog
 
-LoopBar is a native macOS notch-island monitor for local Cursor and Codex work. It is read-only, requires no API keys, and does not make network requests.
+## 0.9.7 — 2026-08-11
+
+### Added
+
+- Added a one-command production release pipeline that builds, Developer ID-signs, notarizes, staples, validates, and checksums the DMG.
+- Added first-launch installation guidance and production-aware Launch at Login setup.
+
+### Changed
+
+- Redesigned Settings with clearer monitored-app and app-behavior groups, progressive disclosure for advanced controls, and consistently right-aligned switches.
+- Refined agent rows with source-first icons and restrained source-colored gradients while keeping semantic colors focused on status pills and attention indicators.
+- Smoothed island resizing, content transitions, list updates, hover feedback, and progress changes.
+- Added Reduce Motion handling, keyboard-accessible agent rows, and clearer accessibility labels.
+
+### Fixed
+
+- Fixed strict Developer ID signing by keeping SwiftPM's generated resource bundle out of the packaged app root.
+- Added automatic synchronization of `CFBundleShortVersionString` and incrementation of `CFBundleVersion` during production releases.
+
+## Feature overview
+
+LoopBar is a native macOS notch-island monitor for local Cursor, Codex, and Claude Code work. It is read-only, requires no API keys, and does not make network requests.
 
 ## Island UI
 
@@ -77,7 +98,3 @@ LoopBar is a native macOS notch-island monitor for local Cursor and Codex work. 
 - Uses native macOS notifications with a default sound in packaged app builds.
 - Uses a sound-enabled `osascript` fallback during raw SwiftPM/debug runs.
 - Notification clicks open the associated agent application or Codex task.
-
-## Beta release
-
-The current packaged build is `0.2.0-beta` (build 2). It includes the complete feature set listed above and is intended for small-group beta testing.

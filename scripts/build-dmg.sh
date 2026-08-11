@@ -49,11 +49,10 @@ install -m 644 \
     "$repo_root/Sources/Resources/NotificationLogo.png" \
     "$staged_app/Contents/Resources/NotificationLogo.png"
 
-resource_bundle="$bin_dir/LoopBar_LoopBar.bundle"
-if [[ -d "$resource_bundle" ]]; then
-    ditto "$resource_bundle" "$staged_app/LoopBar_LoopBar.bundle"
-fi
-
+# Do not copy SwiftPM's generated resource bundle into the .app root. Files at
+# that location are rejected by strict Developer ID signing. Packaged builds
+# read their version from Info.plist and the logo from Contents/Resources;
+# Bundle.module remains available to raw `swift run` development builds.
 /usr/libexec/PlistBuddy \
     -c "Set :CFBundleShortVersionString $version" \
     "$staged_app/Contents/Info.plist"
