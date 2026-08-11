@@ -6,7 +6,7 @@ struct LoopBarApp: App {
 
     var body: some Scene {
         SwiftUI.Settings {
-            SettingsView(store: appDelegate.store)
+            SettingsView(store: appDelegate.store, updater: appDelegate.updater)
         }
     }
 }

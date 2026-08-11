@@ -8,4 +8,4 @@
 - Event-driven Cursor Desktop refresh with independent Cursor/Codex source toggles.
 - Sound notifications when work completes or needs your attention.
 - Click Codex tasks to open the exact thread; Cursor tasks open the related workspace.
-- Read-only local monitoring with no API keys, network requests, or data changes.
+- Read-only local monitoring with no API keys or coding-tool data changes; network access is limited to optional signed app updates.

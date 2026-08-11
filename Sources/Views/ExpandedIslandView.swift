@@ -81,11 +81,16 @@ struct ExpandedIslandView: View {
     // MARK: - Settings
 
     private var settingsBody: some View {
-        SettingsView(store: store) {
-            withAnimation(paneAnimation) {
-                viewModel.selectContent(.agents)
+        SettingsView(
+            store: store,
+            updater: .shared,
+            onPrepareForUpdateCheck: viewModel.collapse,
+            onDone: {
+                withAnimation(paneAnimation) {
+                    viewModel.selectContent(.agents)
+                }
             }
-        }
+        )
         .frame(maxWidth: .infinity)
         .frame(height: IslandMetrics.settingsBodyHeight)
     }

@@ -4,8 +4,11 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject private var launchAtLogin: LaunchAtLoginService
+    @ObservedObject private var updater: AppUpdater
     /// When embedded in the island, dismiss returns to the agents pane.
     var onDone: (() -> Void)?
+    /// Lets the island collapse before Sparkle presents its own window.
+    var onPrepareForUpdateCheck: (() -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
@@ -15,10 +18,17 @@ struct SettingsView: View {
 
     private var isEmbedded: Bool { onDone != nil }
 
-    init(store: AgentStore, onDone: (() -> Void)? = nil) {
+    init(
+        store: AgentStore,
+        updater: AppUpdater,
+        onPrepareForUpdateCheck: (() -> Void)? = nil,
+        onDone: (() -> Void)? = nil
+    ) {
         self.store = store
         self.onDone = onDone
+        self.onPrepareForUpdateCheck = onPrepareForUpdateCheck
         _launchAtLogin = ObservedObject(wrappedValue: store.launchAtLogin)
+        _updater = ObservedObject(wrappedValue: updater)
     }
 
     var body: some View {
@@ -140,6 +150,33 @@ struct SettingsView: View {
                 if store.settings.notificationsEnabled {
                     permissionGuidance
                 }
+
+                settingDivider
+
+                trailingPreferenceToggle(
+                    title: "Automatic updates",
+                    subtitle: "Download new versions in the background",
+                    icon: "arrow.triangle.2.circlepath",
+                    color: .green,
+                    isOn: automaticUpdatesBinding
+                )
+                .disabled(!updater.isAvailable)
+
+                HStack {
+                    Text(updater.isAvailable
+                         ? "LoopBar checks once a day."
+                         : "Update checks are available in the packaged app.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 12)
+
+                    Button("Check for Updates…", action: checkForUpdates)
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.link)
+                    .disabled(!updater.isAvailable)
+                }
+                .padding(.leading, 38)
             }
 
             advancedSettings
@@ -379,6 +416,13 @@ struct SettingsView: View {
         )
     }
 
+    private var automaticUpdatesBinding: Binding<Bool> {
+        Binding(
+            get: { updater.automaticallyChecksForUpdates },
+            set: { updater.automaticallyChecksForUpdates = $0 }
+        )
+    }
+
     @ViewBuilder
     private var launchAtLoginGuidance: some View {
         if let message = launchAtLoginMessage {
@@ -492,6 +536,20 @@ struct SettingsView: View {
 
     private var disclosureAnimation: Animation? {
         reduceMotion ? nil : .easeInOut(duration: 0.2)
+    }
+
+    private func checkForUpdates() {
+        let waitsForCollapse = onPrepareForUpdateCheck != nil && !reduceMotion
+        onPrepareForUpdateCheck?()
+
+        Task { @MainActor [updater] in
+            if waitsForCollapse {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            } else {
+                await Task.yield()
+            }
+            updater.checkForUpdates()
+        }
     }
 
     private func finish() {

@@ -23,9 +23,15 @@ cd "$repo_root"
 swift build -c release
 bin_dir="$(swift build -c release --show-bin-path)"
 built_executable="$bin_dir/LoopBar"
+built_framework="$bin_dir/Sparkle.framework"
 
 if [[ ! -x "$built_executable" ]]; then
     echo "Release executable was not created: $built_executable" >&2
+    exit 1
+fi
+
+if [[ ! -d "$built_framework" ]]; then
+    echo "Sparkle.framework was not created: $built_framework" >&2
     exit 1
 fi
 
@@ -45,9 +51,19 @@ staged_app="$dmg_root/LoopBar.app"
 mkdir -p "$dmg_root"
 ditto "$template_app" "$staged_app"
 install -m 755 "$built_executable" "$staged_app/Contents/MacOS/LoopBar"
+mkdir -p "$staged_app/Contents/Frameworks"
+ditto "$built_framework" "$staged_app/Contents/Frameworks/Sparkle.framework"
 install -m 644 \
     "$repo_root/Sources/Resources/NotificationLogo.png" \
     "$staged_app/Contents/Resources/NotificationLogo.png"
+
+# SwiftPM links binary frameworks beside its executable. Packaged apps keep
+# them in Contents/Frameworks, so add the standard application-bundle rpath.
+if ! otool -l "$staged_app/Contents/MacOS/LoopBar" \
+    | grep -F '@executable_path/../Frameworks' >/dev/null; then
+    install_name_tool -add_rpath '@executable_path/../Frameworks' \
+        "$staged_app/Contents/MacOS/LoopBar"
+fi
 
 # Do not copy SwiftPM's generated resource bundle into the .app root. Files at
 # that location are rejected by strict Developer ID signing. Packaged builds
@@ -67,6 +83,11 @@ codesign --verify --deep --strict --verbose=2 "$staged_app"
 
 if ! strings "$staged_app/Contents/MacOS/LoopBar" | grep -F "Launch at Login" >/dev/null; then
     echo "Packaged executable does not contain the Launch at Login feature." >&2
+    exit 1
+fi
+
+if ! strings "$staged_app/Contents/MacOS/LoopBar" | grep -F "Check for Updates" >/dev/null; then
+    echo "Packaged executable does not contain the Sparkle update feature." >&2
     exit 1
 fi
 

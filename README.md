@@ -135,6 +135,7 @@ The proposed Claude Code source architecture is documented in
 - `Sources/Services/AgentOpener.swift` — opens Cursor or Codex when a row or notification is clicked.
 - `Sources/Services/NotificationService.swift` — posts status-transition notifications with sound in packaged `.app` builds and uses an `osascript` notification fallback for raw SwiftPM/debug runs.
 - `Sources/Services/LaunchAtLoginService.swift` — registers the main app with macOS Service Management and reports approval/error states.
+- `Sources/Services/AppUpdater.swift` — owns Sparkle's signed automatic and user-initiated update checks.
 - `Sources/Services/Settings.swift` — persists onboarding completion, refresh and notification preferences, and source toggles in `UserDefaults`.
 - `Sources/Utilities/IslandMetrics.swift` — compact/expanded widths, heights, list sizing, and settings sizing.
 - `Sources/Utilities/AgentElapsedText.swift` — elapsed-time formatting for expanded rows.
@@ -158,7 +159,7 @@ The runtime flow is:
 
 The refresh interval defaults to one second and is clamped between one and 60 seconds. Cursor file events can refresh sooner than this interval; the timer is a recovery mechanism and continues to drive Codex monitoring. Cursor and Codex monitoring can be enabled independently. A temporary SQLite read failure keeps the previous snapshot for that source instead of replacing it with a noisy empty/error state.
 
-Each source is queried only when its setting is enabled. Cursor reads `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; Codex reads `~/.codex/state_5.sqlite`, rollout JSONL files, and the local process table. No API key, network connection, or external service is required.
+Each source is queried only when its setting is enabled. Cursor reads `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; Codex reads `~/.codex/state_5.sqlite`, rollout JSONL files, and the local process table. Monitoring requires no API key, network connection, or external service. The separately configurable updater connects only to the public LoopBar update feed and GitHub release assets.
 
 ## Notifications and opening tasks
 
@@ -166,7 +167,7 @@ Notifications are emitted only after the initial snapshot, and only when an agen
 
 ## Privacy
 
-LoopBar reads local Cursor and Codex metadata only. It does not send prompts, edit files through either agent, modify their databases, or make network requests. On first launch after this version, it removes only LoopBar's legacy Cursor hook command, script, and event log while preserving unrelated hook commands.
+LoopBar reads local Cursor and Codex metadata only. It does not send prompts, edit files through either agent, or modify their databases. When automatic updates are enabled, Sparkle contacts only LoopBar's public update feed and GitHub release downloads. On first launch after this version, LoopBar removes only its legacy Cursor hook command, script, and event log while preserving unrelated hook commands.
 
 ## Build a distributable app
 
@@ -187,7 +188,31 @@ provide an Apple signing identity:
 CODE_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" bash scripts/build-dmg.sh
 ```
 
-The package has no third-party dependencies.
+The packaged app embeds Sparkle 2 for secure in-app updates.
+
+### In-app updates
+
+LoopBar uses [Sparkle 2](https://sparkle-project.org/) to check for, download,
+and install signed updates. Settings includes an **Automatic updates** switch
+and a **Check for Updates…** action. Packaged builds check once per day by
+default; raw `swift run` builds leave updating disabled because they do not have
+the packaged Info.plist or application bundle.
+
+The update feed is [`appcast.xml`](appcast.xml), served over HTTPS from the
+repository's `main` branch. Update archives are protected by both Developer ID
+code signing and Sparkle's EdDSA signature. The public key is committed in the
+packaged Info.plist; the private key remains in the developer's login Keychain
+under the `LoopBar` Sparkle account.
+
+One-time updater key setup on a new release machine:
+
+```sh
+swift package resolve
+.build/artifacts/sparkle/Sparkle/bin/generate_keys --account LoopBar
+```
+
+If the LoopBar key already exists on another release machine, export and import
+it using Sparkle's `generate_keys` tool. Never commit the exported private key.
 
 ### One-command notarized release
 
@@ -204,6 +229,9 @@ Application identity is installed. It reads the release version from
 `CFBundleVersion`, builds and signs the app, creates and signs the DMG, waits for
 Apple notarization, staples and validates the ticket, runs a Gatekeeper
 assessment, and prints the final SHA-256 checksum.
+It also writes the checksum file, signs the final stapled DMG for Sparkle, and
+regenerates `appcast.xml` with embedded notes from the matching top-level
+section in `CHANGELOG.md`.
 
 If the Keychain profile has a different name or multiple Developer ID
 certificates are installed, specify them explicitly:
@@ -211,6 +239,7 @@ certificates are installed, specify them explicitly:
 ```sh
 NOTARY_KEYCHAIN_PROFILE="Company Notary" \
 CODE_SIGN_IDENTITY="CERTIFICATE_SHA1_HASH" \
+SPARKLE_KEY_ACCOUNT="LoopBar" \
   bash scripts/release.sh
 ```
 
@@ -222,6 +251,12 @@ xcrun notarytool store-credentials "LoopBar" \
   --apple-id "you@example.com" \
   --team-id "TEAMID"
 ```
+
+After the script finishes, create the GitHub release using the exact version
+from `version.txt`, attach the generated DMG and `.sha256` file, then commit and
+push the regenerated `appcast.xml`. The feed's asset URL assumes the release tag
+matches the version exactly (for example, `0.9.8`). Publish the assets before
+pushing the feed so users never receive a download URL that does not exist.
 
 ### App icon
 

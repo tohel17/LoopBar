@@ -1,5 +1,20 @@
 # LoopBar changelog
 
+## 0.9.8 — 2026-08-11
+
+### Added
+
+- Added secure Sparkle 2 updates with daily background checks, automatic downloads, and a manual **Check for Updates…** action.
+- Added EdDSA-signed appcast generation to the notarized release workflow.
+
+### Changed
+
+- Embedded and Developer ID-sign Sparkle's framework and updater helpers in packaged builds.
+
+### Fixed
+
+- Collapse the expanded island and activate the app before presenting Sparkle dialogs, keeping update results visible and interactive.
+
 ## 0.9.7 — 2026-08-11
 
 ### Added

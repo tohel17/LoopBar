@@ -5,6 +5,7 @@ import UserNotifications
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let store = AgentStore()
+    let updater = AppUpdater.shared
     private(set) lazy var viewModel = IslandViewModel(store: store)
     private var islandController: IslandPanelController?
     private var onboardingController: OnboardingWindowController?
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        updater.start()
         CursorHookCleanup.removeLegacyInstallation()
         if NotificationService.canUseUserNotifications {
             UNUserNotificationCenter.current().delegate = self
