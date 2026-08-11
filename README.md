@@ -1,280 +1,142 @@
-# LoopBar
+<p align="center">
+  <img src="Assets/LoopBar-AppIcon-v7.png" width="128" height="128" alt="LoopBar app icon">
+</p>
 
-LoopBar is a native macOS menu-bar monitor for recent local Cursor composers, Codex tasks, and Claude Code sessions. It displays a notch-style island at the top of the active screen and is deliberately read-only: it observes local application state, but never sends prompts or changes coding-tool data.
+<h1 align="center">LoopBar</h1>
 
-![Architecture](docs/architecture.svg)
+<p align="center">
+  <strong>Keep every coding agent in sight.</strong><br>
+  A native macOS status island for Cursor, Codex, and Claude Code.
+</p>
 
-## Run locally
+<p align="center">
+  <a href="https://github.com/tohel17/LoopBar/releases/latest"><strong>Download LoopBar</strong></a>
+  ·
+  <a href="#how-it-works">How it works</a>
+  ·
+  <a href="#privacy-by-design">Privacy</a>
+</p>
 
-Requirements: macOS 14+ and Xcode 15+.
+---
+
+Your coding agents can keep working in different apps, windows, and terminals. LoopBar brings their most important signals to one glanceable place at the top of your screen—so you know what is running, what finished, and what needs you without constantly switching context.
+
+LoopBar is local, read-only, and built for macOS. There is no account to create, no API key to configure, and no cloud dashboard between you and your work.
+
+## One glance. Every agent.
+
+- **See what is working** — follow active Cursor composers, Codex tasks, and Claude Code sessions from one compact island.
+- **Know when to step in** — spot approvals, questions, blocked work, and failures before they sit unnoticed.
+- **Get notified at the right moments** — choose alerts for completed work, attention requests, and failures.
+- **Jump back into the task** — select an agent to return to its source app or open the exact Codex task when available.
+- **Stay out of the way** — the island collapses into a quiet running and attention count when you do not need the details.
+
+## Designed for your Mac
+
+LoopBar sits at the top of the active display and feels at home around the MacBook notch. Click it to reveal agent names, sources, live status, elapsed time, recent activity, and progress when available. Click away and it returns to its compact state.
+
+Source-aware colors make the list easy to scan, while status colors keep the important moments unmistakable: running, queued, waiting for approval, waiting for input, blocked, completed, failed, or cancelled.
+
+| Cursor | Codex | Claude Code |
+| --- | --- | --- |
+| Composer activity and related workspaces | App and CLI task activity with task deep links | Local terminal session activity |
+
+## How it works
+
+1. LoopBar reads recent task status from the supported tools already installed on your Mac.
+2. The compact island shows how many agents are running and how many need attention.
+3. Expand it for details, or use a notification to return to the work that needs you.
+
+Everything is configurable: monitor only the tools you use, launch LoopBar at login, choose the refresh interval, and decide which notification types are useful to you.
+
+## Privacy by design
+
+LoopBar observes local application state without sending prompts, changing tasks, editing project files, or writing to your coding tools' databases.
+
+- No LoopBar account
+- No API keys
+- No analytics or remote monitoring service
+- No prompts or project content uploaded by LoopBar
+- Read-only access to local task metadata
+
+LoopBar only uses the network for optional, signed app updates. Sparkle checks the public update feed and downloads releases from GitHub when updates are enabled.
+
+## Install LoopBar
+
+**Requires macOS 14 Sonoma or later.**
+
+1. Download the newest DMG from [GitHub Releases](https://github.com/tohel17/LoopBar/releases/latest).
+2. Open the DMG and drag **LoopBar** into **Applications**.
+3. Launch LoopBar and follow the three-step setup.
+4. Choose Cursor, Codex, and/or Claude Code, then optionally enable notifications and Launch at Login.
+
+LoopBar includes secure in-app updates, with automatic daily checks and a manual **Check for Updates…** action in Settings.
+
+## Controls
+
+- Click the compact island to expand or collapse it.
+- Click an agent row to return to its source application.
+- Use the refresh button to check immediately.
+- Use the gear button to change monitored tools, notifications, login behavior, updates, and refresh timing.
+- Use the power button to quit LoopBar.
+
+## Build from source
+
+For local development, install Xcode 15 or later and run:
 
 ```sh
 swift run LoopBar
 ```
 
-`swift run` is suitable for feature development, but macOS cannot register that
-raw executable as a login item. Test Launch at Login from an installed `.app`
-created with the packaging command below.
+`swift run` is ideal for development, but macOS cannot register the raw executable as a login item and Sparkle updates are disabled outside a packaged app.
 
-Click the island to expand it. Click an agent row to open its source application. The gear button opens settings; the refresh button performs an immediate refresh; the power button quits LoopBar.
-
-On first launch, LoopBar presents a three-step setup assistant. It explains the local, read-only workflow, lets the user independently enable or disable Cursor, Codex, and Claude Code monitoring, and offers native Launch at Login registration. If notifications remain enabled, macOS asks for alert and sound permission when setup finishes. The choices remain editable in Settings; the assistant does not appear again after completion.
-
-The app version has one source of truth: `Sources/Resources/version.txt`. After changing it, rebuild LoopBar. Before packaging the `.app`, synchronize its Info.plist:
-
-```sh
-./scripts/sync-version.sh
-```
-
-## What the island shows
-
-The panel is always centered over the active screen's notch area. Its background is fully black and opaque, with a custom shoulder shape at the top and rounded bottom corners. Compact and expanded modes share the same top header, so the island remains visually attached to the notch while its body changes below it.
-
-### Compact / minimized mode
-
-Compact mode is 370 points wide and 50 points high. It intentionally contains only the two actionable grouped counts:
-
-- **Left side — running count:** counts every loaded agent whose status is exactly `running`.
-- **Right side — attention count:** counts every loaded agent whose status has `needsAttention == true`: `waitingForApproval`, `waitingForInput`, `blocked`, or `failed`.
-
-The compact header does not show elapsed time, task titles, source names, or completed counts. This keeps the minimized island small and readable around the notch. If there are no agents, it shows a centered waiting/connection badge instead.
-
-The left running accent is source-aware:
-
-- Codex running: blue
-- Cursor running: purple
-- Both sources running: blue is used as the shared compact accent
-
-Green is reserved for completed agents in expanded rows. The right attention accent is status-aware: yellow for approval/input, orange for blocked, and red for failed. Large soft radial gradients begin at the island's upper-left and upper-right corners and use these same accents. The empty center remains clear around the notch.
-
-The entire compact header is one click target, including the empty notch-safe space between the counters. Clicking anywhere in it toggles expanded mode. While expanded, clicking anywhere outside LoopBar immediately returns it to compact mode without consuming the click; leaving the pointer outside still applies the existing two-second auto-collapse delay.
-
-### Expanded / maximized mode
-
-Expanded mode is 520 points wide. The header remains visible at the top with the same running and attention counts, followed by the selected content body and a footer.
-
-The agents body displays up to six rows: the three most recently updated Cursor composers plus the three most recently updated Codex threads. Rows are sorted globally by attention first, then running, queued, unknown, and terminal states; within a priority, the newest update appears first.
-
-Each row contains:
-
-- The task/composer title
-- The source label (`Cursor` or `Codex`)
-- A status label with elapsed time, such as `Running · 4m` or `Completed · 2m ago`
-- The latest source-derived status text
-- A progress bar when progress is available for a running agent
-- A source/status color and icon
-
-Expanded row colors are:
-
-| Status | Cursor | Codex |
-| --- | --- | --- |
-| Running | Purple | Blue |
-| Queued | Yellow | Yellow |
-| Waiting for approval | Orange | Orange |
-| Waiting for input | Cyan | Cyan |
-| Blocked | Red | Red |
-| Completed | Green | Green |
-| Failed | Red | Red |
-| Cancelled/unknown | Gray | Gray |
-
-The expanded footer and Settings show the packaged app version from `CFBundleShortVersionString`. Direct SwiftPM development launches read the same value from the bundled `version.txt` resource because they do not have an app Info.plist. The footer also provides refresh, settings, and quit controls. Settings and the placeholder logs content are selected through the expanded content state.
-
-## Status model
-
-`AgentStatus` supports `running`, `queued`, `waitingForApproval`, `waitingForInput`, `blocked`, `completed`, `failed`, `cancelled`, and `unknown`.
-
-`needsAttention` is true only for approval, input, blocked, and failed states. A queued or merely old/unknown task is not counted in the compact right-side attention total.
-
-Cursor Desktop status is inferred without hooks, in this order:
-
-1. Explicit blocked state
-2. Pending plan or blocking pending action → approval
-3. Unread messages → waiting for input
-4. Live generation → running: legacy composer flags **or** a recent `bubbleId` tool with `toolFormerData.status = loading` (age-filtered; Cursor often leaves composer-level generation flags empty mid-run)
-5. Definitive terminal database status when there is no live generation evidence
-6. An `aborted` follow-up with advanced activity stays running until Cursor writes its terminal status (sustained by bubble/transcript/header recency, not header freshness alone)
-7. Queue items → queued
-8. Transcript turn state (`role:user` / `role:assistant` open turn, or `turn_ended`) → running, completed, or failed
-9. Other explicit status values
-10. Completion subtitle (`Edited …`) → completed
-11. Recent activity within the 15-second fallback window (header, newest bubble, or transcript mtime) → running; otherwise unknown
-
-macOS filesystem events watch Cursor's local database and project transcript directories. Writes are debounced briefly and trigger an immediate refresh, while the configured polling interval remains as a recovery pass. Transcript paths and read offsets are cached, so subsequent refreshes read only newly appended JSONL data. The Cursor process table is used only to prevent a closed desktop application from leaving a composer marked as running; shared Electron processes are never attributed to individual composers.
-
-Codex uses a hybrid liveness model. `ps` finds terminal-attached Codex CLI processes and one batched `lsof` maps them to open rollout JSONL files. Process presence determines whether a mapped task is alive, while the rollout tail determines whether that live task is running, waiting for approval/input, or blocked. For threads identified as CLI/terminal-originated, a complete process snapshot can also establish that a task has stopped. Durable task-completion markers remain valid after the process exits.
-
-If process discovery is unavailable, cannot map every Codex process, or the thread comes from a non-terminal Codex surface, LoopBar safely falls back to its previous persisted-state model. Task completion, approval, input, blocked markers, tool calls, and newer activity are compared by their position in the rollout, with a 120-second database-recency window as the final fallback. This avoids declaring desktop/background tasks stopped merely because no terminal process exists.
-
-Because neither local application exposes a complete durable run-state contract for every task, LoopBar preserves an `unknown` state when the available evidence is insufficient instead of guessing completion.
-
-## Data flow and architecture
-
-LoopBar uses a small MVVM-style split:
-
-The proposed Claude Code source architecture is documented in
-[`docs/claude-integration-architecture.md`](docs/claude-integration-architecture.md).
-
-- `Sources/App/LoopBarApp.swift` — executable entry point; creates the store, view model, and panel controller.
-- `Sources/App/AppDelegate.swift` — application lifecycle, notification delegate, and notification click handling.
-- `Sources/Controllers/IslandPanelController.swift` — owns the borderless `NSPanel`, hosts SwiftUI, tracks screen changes, and resizes/repositions the panel. Width changes animate horizontally while vertical notch alignment remains fixed.
-- `Sources/Controllers/OnboardingWindowController.swift` — presents the one-time first-launch setup assistant in a centered native window.
-- `Sources/Geometry/IslandGeometry.swift` — calculates the active screen and notch-aligned panel frame.
-- `Sources/ViewModels/IslandViewModel.swift` — owns compact/expanded chrome, selected content, and store-driven loading/error presentation. It does not own agent data.
-- `Sources/Models/Agent.swift` — agent value model, sources, statuses, labels, icons, terminal state, and attention state.
-- `Sources/Models/IslandState.swift` — compact, expanded, loading, and notification chrome states.
-- `Sources/Models/IslandContent.swift` — agents, settings, and logs body selection.
-- `Sources/Services/AgentStore.swift` — main-actor observable store, event-triggered and periodic refreshes, sorting, transient error handling, and status-transition notification triggers.
-- `Sources/Services/CursorAPI.swift` — read-only SQLite access to Cursor's `composerHeaders`, `composerData`, and recent `bubbleId` tool activity.
-- `Sources/Services/CursorFileWatcher.swift` — debounced macOS filesystem events for Cursor's state and transcript directories.
-- `Sources/Services/CursorTranscriptMonitor.swift` — cached transcript discovery and incremental turn-state parsing (`user`/`assistant`/`turn_ended`).
-- `Sources/Services/CursorActivityTracker.swift` — cross-refresh inference for Cursor's `aborted`-while-running follow-up lifecycle.
-- `Sources/Services/CursorDesktopProcessDiscovery.swift` — application-level Cursor Desktop process guard.
-- `Sources/Services/CursorHookCleanup.swift` — one-time removal of LoopBar's legacy hook without changing unrelated user hook commands.
-- `Sources/Services/CodexAPI.swift` — read-only SQLite access to Codex's local `threads` table and rollout JSONL tails.
-- `Sources/Services/CodexProcessDiscovery.swift` — read-only `ps`/`lsof` discovery that maps terminal-attached Codex processes to live rollout files.
-- `Sources/Services/AgentOpener.swift` — opens Cursor or Codex when a row or notification is clicked.
-- `Sources/Services/NotificationService.swift` — posts status-transition notifications with sound in packaged `.app` builds and uses an `osascript` notification fallback for raw SwiftPM/debug runs.
-- `Sources/Services/LaunchAtLoginService.swift` — registers the main app with macOS Service Management and reports approval/error states.
-- `Sources/Services/AppUpdater.swift` — owns Sparkle's signed automatic and user-initiated update checks.
-- `Sources/Services/Settings.swift` — persists onboarding completion, refresh and notification preferences, and source toggles in `UserDefaults`.
-- `Sources/Utilities/IslandMetrics.swift` — compact/expanded widths, heights, list sizing, and settings sizing.
-- `Sources/Utilities/AgentElapsedText.swift` — elapsed-time formatting for expanded rows.
-- `Sources/Views/IslandRootView.swift` — top-level SwiftUI sizing wrapper.
-- `Sources/Views/OnboardingView.swift` — welcome, workflow explanation, source selection, and notification preference screens.
-- `Sources/Views/MenuPanelView.swift` — black island shape, header/body/footer composition, dividers, and footer actions.
-- `Sources/Views/CompactIslandView.swift` — grouped compact counts, directional gradients, and the full-width toggle hit area.
-- `Sources/Views/ExpandedIslandView.swift` — agents list, settings body, logs placeholder, and error/empty states.
-- `Sources/Views/AgentRowView.swift` — expanded agent row, elapsed status, source/status color, progress, and click action.
-- `Sources/Views/SettingsView.swift` — source, Launch at Login, notification, and refresh controls.
-
-The runtime flow is:
-
-1. On first launch, `AgentStore` waits for setup to finish, requests notification permission when enabled, then starts Cursor file monitoring and a periodic recovery poll. Later launches start monitoring immediately and read the existing permission without prompting.
-2. Cursor filesystem changes trigger a debounced refresh; the recovery poll refreshes every enabled source.
-3. Cursor and Codex records are normalized into `CursorAgent` values.
-4. The store sorts the combined snapshot, compares statuses with the previous snapshot, and emits notifications for completed or newly actionable states.
-5. SwiftUI observes the store and view model. Expanded content and panel height update when data, errors, or selected content change.
-
-## Refresh and source settings
-
-The refresh interval defaults to one second and is clamped between one and 60 seconds. Cursor file events can refresh sooner than this interval; the timer is a recovery mechanism and continues to drive Codex monitoring. Cursor and Codex monitoring can be enabled independently. A temporary SQLite read failure keeps the previous snapshot for that source instead of replacing it with a noisy empty/error state.
-
-Each source is queried only when its setting is enabled. Cursor reads `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; Codex reads `~/.codex/state_5.sqlite`, rollout JSONL files, and the local process table. Monitoring requires no API key, network connection, or external service. The separately configurable updater connects only to the public LoopBar update feed and GitHub release assets.
-
-## Notifications and opening tasks
-
-Notifications are emitted only after the initial snapshot, and only when an agent changes into `completed` or into a state requiring attention. The notification includes the source, task title/status, and default sound. Clicking a Codex notification uses its `codex://threads/<id>` deep link. Cursor currently opens the associated workspace or Cursor fallback because Cursor does not expose a durable local deep link for a specific composer.
-
-## Privacy
-
-LoopBar reads local Cursor and Codex metadata only. It does not send prompts, edit files through either agent, or modify their databases. When automatic updates are enabled, Sparkle contacts only LoopBar's public update feed and GitHub release downloads. On first launch after this version, LoopBar removes only its legacy Cursor hook command, script, and event log while preserving unrelated hook commands.
-
-## Build a distributable app
-
-Build the current source, inject the new release executable into the app bundle,
-sign it, and create the DMG with:
+To build a local app bundle and DMG:
 
 ```sh
 bash scripts/build-dmg.sh
 ```
 
-The DMG includes an Applications shortcut. Drag LoopBar onto it and launch the
-installed `/Applications/LoopBar.app`; Launch at Login is intentionally disabled
-when the app runs directly from the mounted DMG. The script uses an ad-hoc
-signature by default. For a distributable build with reliable notifications,
-provide an Apple signing identity:
+The script creates an ad-hoc signed build by default. To use a Developer ID identity:
 
 ```sh
 CODE_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" bash scripts/build-dmg.sh
 ```
 
-The packaged app embeds Sparkle 2 for secure in-app updates.
-
-### In-app updates
-
-LoopBar uses [Sparkle 2](https://sparkle-project.org/) to check for, download,
-and install signed updates. Settings includes an **Automatic updates** switch
-and a **Check for Updates…** action. Packaged builds check once per day by
-default; raw `swift run` builds leave updating disabled because they do not have
-the packaged Info.plist or application bundle.
-
-The update feed is [`appcast.xml`](appcast.xml), served over HTTPS from the
-repository's `main` branch. Update archives are protected by both Developer ID
-code signing and Sparkle's EdDSA signature. The public key is committed in the
-packaged Info.plist; the private key remains in the developer's login Keychain
-under the `LoopBar` Sparkle account.
-
-One-time updater key setup on a new release machine:
+The app version lives in `Sources/Resources/version.txt`. Synchronize it with the packaged Info.plist before packaging:
 
 ```sh
-swift package resolve
-.build/artifacts/sparkle/Sparkle/bin/generate_keys --account LoopBar
+./scripts/sync-version.sh
 ```
 
-If the LoopBar key already exists on another release machine, export and import
-it using Sparkle's `generate_keys` tool. Never commit the exported private key.
+## Architecture
 
-### One-command notarized release
+LoopBar uses a small MVVM-style design:
 
-After installing a Developer ID Application certificate and saving a
-`notarytool` Keychain profile named `LoopBar`, run:
+- `Sources/App` — app lifecycle and executable entry point
+- `Sources/Controllers` — island and onboarding window management
+- `Sources/Models` — normalized agent, source, and status values
+- `Sources/Services` — read-only Cursor, Codex, and Claude Code monitoring; notifications; login items; and updates
+- `Sources/ViewModels` — island presentation state
+- `Sources/Views` — the SwiftUI island, agent rows, onboarding, and settings
+
+Cursor monitoring combines local SQLite state, transcript activity, filesystem events, and a process guard. Codex combines its local threads database and rollout logs with process discovery where available. Claude Code combines local session transcripts, its live-session registry, and terminal process state. When the evidence is incomplete, LoopBar reports an unknown state instead of guessing.
+
+For the Claude Code source design notes, see [`docs/claude-integration-architecture.md`](docs/claude-integration-architecture.md).
+
+## Release a notarized build
+
+After installing a Developer ID Application certificate, configuring a `notarytool` Keychain profile named `LoopBar`, and generating or importing the Sparkle signing key, run:
 
 ```sh
 bash scripts/release.sh
 ```
 
-The release script auto-detects the certificate when exactly one Developer ID
-Application identity is installed. It reads the release version from
-`Sources/Resources/version.txt`, updates `CFBundleShortVersionString`, increments
-`CFBundleVersion`, builds and signs the app, creates and signs the DMG, waits for
-Apple notarization, staples and validates the ticket, runs a Gatekeeper
-assessment, and prints the final SHA-256 checksum.
-It also writes the checksum file, signs the final stapled DMG for Sparkle, and
-regenerates `appcast.xml` with embedded notes from the matching top-level
-section in `CHANGELOG.md`.
+The release script builds and signs the app, creates and signs the DMG, notarizes and staples it, runs Gatekeeper validation, writes a SHA-256 checksum, signs the update archive, and regenerates `appcast.xml` from `CHANGELOG.md`.
 
-If the Keychain profile has a different name or multiple Developer ID
-certificates are installed, specify them explicitly:
+See [Sparkle's documentation](https://sparkle-project.org/documentation/) for update-key setup. Never commit the exported private key.
 
-```sh
-NOTARY_KEYCHAIN_PROFILE="Company Notary" \
-CODE_SIGN_IDENTITY="CERTIFICATE_SHA1_HASH" \
-SPARKLE_KEY_ACCOUNT="LoopBar" \
-  bash scripts/release.sh
-```
+---
 
-Create the Keychain profile once, without placing the app-specific password in
-the repository or shell history:
-
-```sh
-xcrun notarytool store-credentials "LoopBar" \
-  --apple-id "you@example.com" \
-  --team-id "TEAMID"
-```
-
-After the script finishes, create the GitHub release using the exact version
-from `version.txt`, attach the generated DMG and `.sha256` file, then commit and
-push the regenerated `appcast.xml`. The feed's asset URL assumes the release tag
-matches the version exactly (for example, `0.9.8`). Publish the assets before
-pushing the feed so users never receive a download URL that does not exist.
-
-### App icon
-
-The mascot icon master is [`Assets/LoopBar-AppIcon-v7.png`](Assets/LoopBar-AppIcon-v7.png). Packaging needs a loose `.icns` (Finder / older macOS) and a compiled `Assets.car` + `CFBundleIconName` for Notification Center.
-
-On **macOS 26 Tahoe**, the catalog must come from Icon Composer ([`Assets/AppIcon.icon`](Assets/AppIcon.icon)). A flat PNG `AppIcon.appiconset` alone shows a blank left notification icon.
-
-```sh
-python3 scripts/create_app_icon.py Assets/LoopBar-AppIcon-v7.png Assets/AppIcon.icns
-python3 scripts/install_app_icon.py path/to/LoopBar.app
-```
-
-`install_app_icon.py` prefers `Assets/AppIcon.icon`, falls back to the flat xcassets, then you re-sign. Do not attach `NotificationLogo.png` to notification content: macOS renders attachments on the right, while the left source icon comes from the registered app bundle.
-
-Sign test releases with a named Apple Development identity (and public releases with Developer ID Application), not an ad-hoc `-` signature. Ad-hoc builds have no team identifier, so UserNotifications registers a teamless notification source that can retain the generic placeholder icon.
-
-Production builds use the stable `com.loopbar.app` bundle identifier. The earlier `com.loopbar.beta` notification source accumulated stale generic-icon metadata during pre-icon releases and should not be reused.
-
-Give each release DMG a versioned volume name such as `LoopBar 0.8.1`. Reusing `/Volumes/LoopBar` across builds can leave Launch Services pointing Notification Center at stale icon metadata from an older mounted image.
-
-The setup assistant requests notification permission when alerts are enabled. The settings screen checks the current macOS authorization and alert settings without prompting at launch; enabling notifications later requests permission directly. If notifications or banners are disabled, LoopBar presents guidance to allow notifications or open System Settings instead of displaying debug output or failing silently.
+<p align="center">
+  <strong>Spend less time checking agents. Spend more time shipping.</strong>
+</p>
