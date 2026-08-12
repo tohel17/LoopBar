@@ -127,10 +127,11 @@ spctl --assess \
     --verbose=4 \
     "$output_dmg"
 
-echo "[7/8] Calculating SHA-256"
+echo "[7/8] Calculating SHA-256 and updating the Homebrew cask"
 checksum="$(shasum -a 256 "$output_dmg" | awk '{ print $1 }')"
 checksum_file="$output_dmg.sha256"
 printf '%s  %s\n' "$checksum" "$(basename "$output_dmg")" > "$checksum_file"
+"$script_dir/update-cask.sh" "$version" "$output_dmg"
 
 echo "[8/8] Signing the Sparkle update and generating appcast.xml"
 generate_appcast="$repo_root/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
@@ -176,7 +177,8 @@ echo
 echo "Release ready: $output_dmg"
 echo "SHA-256: $checksum"
 echo "Checksum file: $checksum_file"
+echo "Homebrew cask: $repo_root/Casks/loopbar.rb"
 echo "Sparkle feed: $repo_root/appcast.xml"
 echo
 echo "Publish the DMG and checksum on GitHub under tag $version, then commit"
-echo "and push appcast.xml so installed copies can discover the update."
+echo "and push appcast.xml and Casks/loopbar.rb so installed copies can update."

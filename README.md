@@ -101,7 +101,18 @@ Firebase records app opens and sessions, app and macOS versions, and basic devic
 
 ## Install LoopBar
 
-**Requires macOS 14 Sonoma or later.**
+**Requires an Apple silicon Mac running macOS 14 Sonoma or later.**
+
+### Homebrew
+
+```sh
+brew tap tohel17/loopbar https://github.com/tohel17/LoopBar
+brew install --cask loopbar
+```
+
+Upgrade later with `brew upgrade --cask loopbar`.
+
+### Direct download
 
 1. Download the newest DMG from [GitHub Releases](https://github.com/tohel17/LoopBar/releases/latest).
 2. Open the DMG and drag **LoopBar** into **Applications**.
@@ -169,7 +180,7 @@ After installing a Developer ID Application certificate, configuring a `notaryto
 bash scripts/release.sh
 ```
 
-The release script builds and signs the app, creates and signs the DMG, notarizes and staples it, runs Gatekeeper validation, writes a SHA-256 checksum, signs the update archive, and regenerates `appcast.xml` from `CHANGELOG.md`.
+The release script builds and signs the app, creates and signs the DMG, notarizes and staples it, runs Gatekeeper validation, writes a SHA-256 checksum, refreshes the Homebrew cask, signs the update archive, and regenerates `appcast.xml` from `CHANGELOG.md`.
 
 See [Sparkle's documentation](https://sparkle-project.org/documentation/) for update-key setup. Never commit the exported private key.
 

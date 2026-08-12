@@ -1,5 +1,11 @@
 # LoopBar changelog
 
+## Unreleased
+
+### Added
+
+- Added Homebrew cask installation and automatic cask updates during releases.
+
 ## 1.0.0 — 2026-08-11
 
 ### Added
