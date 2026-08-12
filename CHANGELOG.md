@@ -1,5 +1,11 @@
 # LoopBar changelog
 
+## Unreleased
+
+### Changed
+
+- Record an active-installation analytics heartbeat every 24 hours while LoopBar remains open, instead of only when the app launches.
+
 ## 1.0.0 — 2026-08-11
 
 ### Added
