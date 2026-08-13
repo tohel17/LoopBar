@@ -3,14 +3,17 @@ import FirebaseCore
 import Foundation
 import OSLog
 
-/// Configures Firebase and records one active-installation event per launch.
+/// Configures Firebase and records an active-installation event at launch and
+/// once every 24 hours while LoopBar remains open.
 @MainActor
 final class AnalyticsService {
     static let shared = AnalyticsService()
 
+    nonisolated static let heartbeatInterval: Duration = .seconds(24 * 60 * 60)
+
     private let logger = Logger(subsystem: "com.loopbar.app", category: "Analytics")
     private var isConfigured = false
-    private var didLogActiveEvent = false
+    private var heartbeatTask: Task<Void, Never>?
 
     private init() {}
 
@@ -18,8 +21,23 @@ final class AnalyticsService {
         guard configureIfNeeded() else { return }
         Analytics.setAnalyticsCollectionEnabled(true)
 
-        guard !didLogActiveEvent else { return }
-        didLogActiveEvent = true
+        guard heartbeatTask == nil else { return }
+        logActiveEvent()
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: Self.heartbeatInterval)
+                } catch {
+                    return
+                }
+
+                guard !Task.isCancelled else { return }
+                self?.logActiveEvent()
+            }
+        }
+    }
+
+    private func logActiveEvent() {
         Analytics.logEvent("app_active", parameters: [
             "app_version": AppVersion.current
         ])

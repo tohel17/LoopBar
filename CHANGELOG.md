@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+
+- Record an active-installation analytics heartbeat every 24 hours while LoopBar remains open, instead of only when the app launches.
 ### Added
 
 - Added Homebrew cask installation and automatic cask updates during releases.
