@@ -1,13 +1,18 @@
 # LoopBar changelog
 
-## Unreleased
+## 1.0.1 — 2026-08-14
+
+### Added
+
+- Added Homebrew cask installation and automatic cask updates during releases.
 
 ### Changed
 
 - Record an active-installation analytics heartbeat every 24 hours while LoopBar remains open, instead of only when the app launches.
-### Added
 
-- Added Homebrew cask installation and automatic cask updates during releases.
+### Fixed
+
+- Added a guided move-to-Applications flow when update checks are started from Downloads, a disk image, or another temporary location.
 
 ## 1.0.0 — 2026-08-11
 

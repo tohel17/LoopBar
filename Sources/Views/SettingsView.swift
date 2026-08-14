@@ -160,12 +160,10 @@ struct SettingsView: View {
                     color: .green,
                     isOn: automaticUpdatesBinding
                 )
-                .disabled(!updater.isAvailable)
+                .disabled(!updater.isAvailable || !updater.isInstalledInApplications)
 
                 HStack {
-                    Text(updater.isAvailable
-                         ? "LoopBar checks once a day."
-                         : "Update checks are available in the packaged app.")
+                    Text(updater.availabilityMessage)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
 
