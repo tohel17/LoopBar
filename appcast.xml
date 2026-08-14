@@ -6,27 +6,29 @@
         <description>Production updates for LoopBar.</description>
         <language>en</language>
         <item>
-            <title>1.0.0</title>
-            <pubDate>Tue, 11 Aug 2026 23:47:45 +0530</pubDate>
-            <link>https://github.com/tohel17/LoopBar/releases/tag/1.0.0</link>
-            <sparkle:version>26</sparkle:version>
-            <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+            <title>1.0.1</title>
+            <pubDate>Fri, 14 Aug 2026 12:04:11 +0530</pubDate>
+            <link>https://github.com/tohel17/LoopBar/releases/tag/1.0.1</link>
+            <sparkle:version>27</sparkle:version>
+            <sparkle:shortVersionString>1.0.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## 1.0.0 — 2026-08-11
+            <description sparkle:format="markdown"><![CDATA[## 1.0.1 — 2026-08-14
 
 ### Added
 
-- Added Firebase Analytics to measure aggregate active installations and app launches.
-- Added an `app_active` event for tracking LoopBar usage across releases.
+- Added Homebrew cask installation and automatic cask updates during releases.
 
 ### Changed
 
-- Updated the privacy documentation to describe the limited app, session, version, macOS, and device data collected by Firebase.
-- Packaged Firebase configuration and analytics support in production DMG builds.
+- Record an active-installation analytics heartbeat every 24 hours while LoopBar remains open, instead of only when the app launches.
+
+### Fixed
+
+- Added a guided move-to-Applications flow when update checks are started from Downloads, a disk image, or another temporary location.
 
 ]]></description>
-            <enclosure url="https://github.com/tohel17/LoopBar/releases/download/1.0.0/LoopBar-1.0.0.dmg" length="5653883" type="application/octet-stream" sparkle:edSignature="87CVP2uYf0Jpn82EEN6ODSYjuLH/jpdwIWyOYhuH6UOeyR06Zizp7pbHrFf56hg307mzE9CSuyH48jq+TmSGDw=="/>
+            <enclosure url="https://github.com/tohel17/LoopBar/releases/download/1.0.1/LoopBar-1.0.1.dmg" length="5661133" type="application/octet-stream" sparkle:edSignature="H4XQNmV7S1sN2PIZCAH4zSPuUOz7qcnAi2iRO2m3dHV9R5MFiouUzv3/4OSkRxW7U7aPQf4WM9uwcOo3GPamDQ=="/>
         </item>
     </channel>
 </rss>

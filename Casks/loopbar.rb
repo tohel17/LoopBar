@@ -1,6 +1,6 @@
 cask "loopbar" do
-  version "1.0.0"
-  sha256 "5f2f86ff55a4e18dc6a486956833bcccd01b299a9f7fa6d85a115234905cb999"
+  version "1.0.1"
+  sha256 "aedb9d8c10f1d7bd122d2195f3e3fefefb12115666abcefcfed21aa20735fa20"
 
   url "https://github.com/tohel17/LoopBar/releases/download/#{version}/LoopBar-#{version}.dmg",
       verified: "github.com/tohel17/LoopBar/"
